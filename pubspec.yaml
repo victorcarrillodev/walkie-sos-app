@@ -1,0 +1,31 @@
+name: app_walkie
+description: "A new Flutter project."
+publish_to: 'none'
+version: 0.1.0
+
+environment:
+  sdk: ^3.10.8
+
+dependencies:
+  flutter:
+    sdk: flutter
+  # Para las peticiones HTTP (Login, Registro, etc.)
+  http: ^1.2.0
+  # Para la conexión en tiempo real con tu servidor
+  socket_io_client: ^3.0.0
+  # Para guardar datos localmente (el token de sesión)
+  shared_preferences: ^2.2.2
+  # Para guardar los audios y conversaciones en el dispositivo
+  sqflite: ^2.3.0
+  path_provider: ^2.1.2
+  # Para grabar y reproducir audio
+  record: ^6.1.2
+  audioplayers: ^6.1.0
+  
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
