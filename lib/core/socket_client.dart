@@ -4,19 +4,17 @@ import 'package:socket_io_client/socket_io_client.dart' as IO;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:path_provider/path_provider.dart';
+import 'database_service.dart';
 
 class SocketClient {
   static IO.Socket? socket;
-  // Instanciamos el reproductor a nivel global
   static final AudioPlayer _audioPlayer = AudioPlayer();
 
   static Future<void> connect() async {
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('token');
-
     if (token == null) return;
 
-    // IMPORTANTE: Asegúrate de que esta IP sea la misma que tu computadora (ej. 192.168.1.75)
     socket = IO.io('https://walkiesos.jegode.com', IO.OptionBuilder()
         .setTransports(['websocket'])
         .disableAutoConnect()
@@ -25,40 +23,41 @@ class SocketClient {
 
     socket!.connect();
 
-    socket!.onConnect((_) {
-      print('✅ Conectado al Socket del servidor Zello');
-    });
-
-    // EL OÍDO GLOBAL: Escucha audios en cualquier pantalla
+    // ESCUCHAR AUDIOS ENTRANTES
     socket!.on('receive-audio', (data) async {
-      print("📥 ¡Audio entrante de ${data['alias']}!");
-      await _reproducirAudioRecibido(data['audioData']);
+      print("📥 Recibiendo audio de ${data['alias']}");
+      await _procesarYGuardarAudio(data);
     });
-
-    socket!.onConnectError((err) => print('❌ Error de conexión de socket: $err'));
-    socket!.onError((err) => print('❌ Error en socket: $err'));
   }
 
-  // Función global para reproducir
-  static Future<void> _reproducirAudioRecibido(String audioBase64) async {
+  static Future<void> _procesarYGuardarAudio(Map<String, dynamic> data) async {
     try {
-      final bytes = base64Decode(audioBase64);
-      final directorioTemp = await getTemporaryDirectory();
-      final archivo = File('${directorioTemp.path}/audio_recibido_${DateTime.now().millisecondsSinceEpoch}.m4a');
+      final bytes = base64Decode(data['audioData']);
       
+      // Guardar en carpeta de Documentos (Permanente)
+      final directorio = await getApplicationDocumentsDirectory();
+      final pathFinal = '${directorio.path}/audio_${DateTime.now().millisecondsSinceEpoch}.m4a';
+      
+      final archivo = File(pathFinal);
       await archivo.writeAsBytes(bytes);
-      await _audioPlayer.play(DeviceFileSource(archivo.path));
-      print("▶️ Audio reproducido con éxito");
+
+      // REGISTRAR EN LA BASE DE DATOS LOCAL
+      await DatabaseService.saveMessage({
+        'contactId': data['userId'] ?? data['channelId'], 
+        'alias': data['alias'],
+        'filePath': pathFinal,
+        'isMe': 0, // 0 = Recibido
+        'timestamp': DateTime.now().toIso8601String(),
+      });
+
+      // Reproducir
+      await _audioPlayer.play(DeviceFileSource(pathFinal));
     } catch (e) {
-      print("❌ Error al reproducir audio: $e");
+      print("Error procesando audio recibido: $e");
     }
   }
 
   static void joinChannel(String channelId) {
     socket?.emit('join-channel', channelId);
-  }
-
-  static void disconnect() {
-    socket?.disconnect();
   }
 }

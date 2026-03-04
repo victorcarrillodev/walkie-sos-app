@@ -3,7 +3,9 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:record/record.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:audioplayers/audioplayers.dart';
 import '../core/socket_client.dart';
+import '../core/database_service.dart';
 
 class ChatScreen extends StatefulWidget {
   final String contactId;
@@ -17,137 +19,108 @@ class ChatScreen extends StatefulWidget {
 
 class _ChatScreenState extends State<ChatScreen> {
   bool _isRecording = false;
-  bool _isContactTalking = false;
-
-  // Solo necesitamos la grabadora aquí
   final AudioRecorder _audioRecorder = AudioRecorder();
-  String? _rutaAudioGrabado;
+  final AudioPlayer _historyPlayer = AudioPlayer();
+  List<Map<String, dynamic>> _historial = [];
 
   @override
   void initState() {
     super.initState();
-    _configurarSockets();
+    _cargarHistorial();
+    // Escuchar actualizaciones de la base de datos
+    SocketClient.socket?.on('receive-audio', (_) => _cargarHistorial());
   }
 
-  void _configurarSockets() {
-    // Escuchar si el otro está grabando (Para cambiar el color del texto)
-    SocketClient.socket?.on('ptt-status', (data) {
-      if (data['userId'] == widget.contactId || data['alias'] == widget.alias) {
-        if (mounted) setState(() => _isContactTalking = data['isTalking']);
-      }
-    });
+  Future<void> _cargarHistorial() async {
+    final mensajes = await DatabaseService.getMessages(widget.contactId);
+    if (mounted) setState(() => _historial = mensajes);
   }
 
-  // --- LÓGICA DE GRABACIÓN ---
   Future<void> _startRecording() async {
-    try {
-      if (await _audioRecorder.hasPermission()) {
-        if (mounted) setState(() => _isRecording = true);
-        SocketClient.socket?.emit('ptt-start', widget.contactId);
-
-        final directorioTemp = await getTemporaryDirectory();
-        _rutaAudioGrabado =
-            '${directorioTemp.path}/mi_audio_${DateTime.now().millisecondsSinceEpoch}.m4a';
-
-        await _audioRecorder.start(
-          const RecordConfig(encoder: AudioEncoder.aacLc),
-          path: _rutaAudioGrabado!,
-        );
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Necesitas dar permisos de micrófono')),
-        );
-      }
-    } catch (e) {
-      print("Error al iniciar grabación: $e");
+    if (await _audioRecorder.hasPermission()) {
+      setState(() => _isRecording = true);
+      SocketClient.socket?.emit('ptt-start', widget.contactId);
+      final dir = await getApplicationDocumentsDirectory();
+      final path = '${dir.path}/envio_${DateTime.now().millisecondsSinceEpoch}.m4a';
+      await _audioRecorder.start(const RecordConfig(), path: path);
     }
   }
 
   Future<void> _stopRecording() async {
-    try {
-      if (mounted) setState(() => _isRecording = false);
-      SocketClient.socket?.emit('ptt-end', widget.contactId);
+    setState(() => _isRecording = false);
+    SocketClient.socket?.emit('ptt-end', widget.contactId);
+    final path = await _audioRecorder.stop();
 
-      final path = await _audioRecorder.stop();
+    if (path != null) {
+      final bytes = await File(path).readAsBytes();
+      SocketClient.socket?.emit('send-audio', {
+        'channelId': widget.contactId,
+        'audioData': base64Encode(bytes),
+      });
 
-      if (path != null) {
-        final bytes = await File(path).readAsBytes();
-        final audioBase64 = base64Encode(bytes);
-
-        SocketClient.socket?.emit('send-audio', {
-          'channelId': widget.contactId,
-          'audioData': audioBase64,
-        });
-
-        print("✅ Audio enviado correctamente");
-      }
-    } catch (e) {
-      print("Error al detener grabación: $e");
+      // GUARDAR MI PROPIO AUDIO EN EL HISTORIAL
+      await DatabaseService.saveMessage({
+        'contactId': widget.contactId,
+        'alias': 'Yo',
+        'filePath': path,
+        'isMe': 1,
+        'timestamp': DateTime.now().toIso8601String(),
+      });
+      _cargarHistorial();
     }
-  }
-
-  @override
-  void dispose() {
-    SocketClient.socket?.emit('leave-channel', widget.contactId);
-    SocketClient.socket?.off('ptt-status');
-    // Ya no apagamos receive-audio para que el oído global siga escuchando
-    _audioRecorder.dispose();
-    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text(widget.alias), centerTitle: true),
+      appBar: AppBar(title: Text(widget.alias)),
       body: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Text(
-            _isContactTalking
-                ? '${widget.alias} está hablando...'
-                : 'Conectado y listo',
-            style: TextStyle(
-              fontSize: 22,
-              color: _isContactTalking ? Colors.green : Colors.grey,
-              fontWeight: FontWeight.bold,
+          // LISTA DE AUDIOS GUARDADOS
+          Expanded(
+            child: ListView.builder(
+              padding: const EdgeInsets.all(10),
+              itemCount: _historial.length,
+              itemBuilder: (context, index) {
+                final msg = _historial[index];
+                bool esMio = msg['isMe'] == 1;
+                return Align(
+                  alignment: esMio ? Alignment.centerRight : Alignment.centerLeft,
+                  child: Container(
+                    margin: const EdgeInsets.symmetric(vertical: 5),
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: esMio ? Colors.blue[100] : Colors.grey[200],
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(esMio ? "Yo" : msg['alias']),
+                        IconButton(
+                          icon: const Icon(Icons.play_arrow),
+                          onPressed: () => _historyPlayer.play(DeviceFileSource(msg['filePath'])),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
             ),
           ),
-          const SizedBox(height: 80),
-          Center(
+          
+          // BOTÓN PTT (PUSH TO TALK)
+          Padding(
+            padding: const EdgeInsets.all(30.0),
             child: GestureDetector(
               onTapDown: (_) => _startRecording(),
               onTapUp: (_) => _stopRecording(),
-              onTapCancel: () => _stopRecording(),
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 200),
-                width: _isRecording ? 220 : 200,
-                height: _isRecording ? 220 : 200,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: _isRecording ? Colors.red : Colors.blue,
-                  boxShadow: [
-                    BoxShadow(
-                      color: (_isRecording ? Colors.red : Colors.blue)
-                          .withOpacity(0.5),
-                      spreadRadius: _isRecording ? 20 : 5,
-                      blurRadius: 15,
-                    ),
-                  ],
-                ),
-                child: Icon(
-                  _isRecording ? Icons.mic : Icons.mic_none,
-                  color: Colors.white,
-                  size: 80,
-                ),
+              child: CircleAvatar(
+                radius: 50,
+                backgroundColor: _isRecording ? Colors.red : Colors.blue,
+                child: Icon(_isRecording ? Icons.mic : Icons.mic_none, color: Colors.white, size: 40),
               ),
             ),
-          ),
-          const SizedBox(height: 60),
-          Text(
-            _isRecording
-                ? 'Grabando... Suelta para enviar'
-                : 'Mantén presionado para hablar',
-            style: const TextStyle(fontSize: 18),
           ),
         ],
       ),
