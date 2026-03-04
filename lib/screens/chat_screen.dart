@@ -27,8 +27,22 @@ class _ChatScreenState extends State<ChatScreen> {
   void initState() {
     super.initState();
     _cargarHistorial();
-    // Escuchar actualizaciones de la base de datos
-    SocketClient.socket?.on('receive-audio', (_) => _cargarHistorial());
+    
+    // Escuchar el evento solo para refrescar la lista visual, no para procesar el audio
+    SocketClient.socket?.on('receive-audio', _onAudioReceivedRefresh);
+  }
+
+  void _onAudioReceivedRefresh(data) {
+    if (mounted) _cargarHistorial();
+  }
+
+  @override
+  void dispose() {
+    // IMPORTANTE: Quitar el listener específico de esta pantalla al salir
+    SocketClient.socket?.off('receive-audio', _onAudioReceivedRefresh);
+    _audioRecorder.dispose();
+    _historyPlayer.dispose();
+    super.dispose();
   }
 
   Future<void> _cargarHistorial() async {
@@ -37,28 +51,40 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _startRecording() async {
-    if (await _audioRecorder.hasPermission()) {
-      setState(() => _isRecording = true);
-      SocketClient.socket?.emit('ptt-start', widget.contactId);
-      final dir = await getApplicationDocumentsDirectory();
-      final path = '${dir.path}/envio_${DateTime.now().millisecondsSinceEpoch}.m4a';
-      await _audioRecorder.start(const RecordConfig(), path: path);
+    if (!await _audioRecorder.hasPermission()) return;
+
+    // Verificar conexión antes de grabar
+    if (SocketClient.socket == null || !SocketClient.socket!.connected) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Sin conexión al servidor")));
+      return;
     }
+
+    setState(() => _isRecording = true);
+    SocketClient.socket?.emit('ptt-start', widget.contactId);
+    
+    final dir = await getTemporaryDirectory();
+    final path = '${dir.path}/envio_${DateTime.now().millisecondsSinceEpoch}.m4a';
+    
+    await _audioRecorder.start(const RecordConfig(encoder: AudioEncoder.aacLc), path: path);
   }
 
   Future<void> _stopRecording() async {
+    if (!_isRecording) return;
+    
     setState(() => _isRecording = false);
     SocketClient.socket?.emit('ptt-end', widget.contactId);
+    
     final path = await _audioRecorder.stop();
-
     if (path != null) {
       final bytes = await File(path).readAsBytes();
+      
+      // Enviar al servidor
       SocketClient.socket?.emit('send-audio', {
         'channelId': widget.contactId,
         'audioData': base64Encode(bytes),
       });
 
-      // GUARDAR MI PROPIO AUDIO EN EL HISTORIAL
+      // Guardar mi propio audio en BD local
       await DatabaseService.saveMessage({
         'contactId': widget.contactId,
         'alias': 'Yo',
@@ -73,52 +99,57 @@ class _ChatScreenState extends State<ChatScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text(widget.alias)),
+      appBar: AppBar(title: Text("Canal: ${widget.alias}"), centerTitle: true),
       body: Column(
         children: [
-          // LISTA DE AUDIOS GUARDADOS
           Expanded(
             child: ListView.builder(
-              padding: const EdgeInsets.all(10),
+              padding: const EdgeInsets.all(15),
               itemCount: _historial.length,
               itemBuilder: (context, index) {
                 final msg = _historial[index];
                 bool esMio = msg['isMe'] == 1;
                 return Align(
                   alignment: esMio ? Alignment.centerRight : Alignment.centerLeft,
-                  child: Container(
-                    margin: const EdgeInsets.symmetric(vertical: 5),
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: esMio ? Colors.blue[100] : Colors.grey[200],
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(esMio ? "Yo" : msg['alias']),
-                        IconButton(
-                          icon: const Icon(Icons.play_arrow),
-                          onPressed: () => _historyPlayer.play(DeviceFileSource(msg['filePath'])),
-                        ),
-                      ],
+                  child: Card(
+                    color: esMio ? Colors.blue[50] : Colors.grey[100],
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(esMio ? "Yo" : msg['alias'], style: const TextStyle(fontWeight: FontWeight.bold)),
+                          IconButton(
+                            icon: const Icon(Icons.play_circle_fill, color: Colors.blue, size: 30),
+                            onPressed: () => _historyPlayer.play(DeviceFileSource(msg['filePath'])),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 );
               },
             ),
           ),
-          
-          // BOTÓN PTT (PUSH TO TALK)
-          Padding(
-            padding: const EdgeInsets.all(30.0),
-            child: GestureDetector(
-              onTapDown: (_) => _startRecording(),
-              onTapUp: (_) => _stopRecording(),
-              child: CircleAvatar(
-                radius: 50,
-                backgroundColor: _isRecording ? Colors.red : Colors.blue,
-                child: Icon(_isRecording ? Icons.mic : Icons.mic_none, color: Colors.white, size: 40),
+          Container(
+            height: 150,
+            width: double.infinity,
+            decoration: BoxDecoration(color: Colors.grey[200], borderRadius: const BorderRadius.vertical(top: Radius.circular(20))),
+            child: Center(
+              child: GestureDetector(
+                onTapDown: (_) => _startRecording(),
+                onTapUp: (_) => _stopRecording(),
+                onTapCancel: () => _stopRecording(),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 100),
+                  padding: EdgeInsets.all(_isRecording ? 25 : 20),
+                  decoration: BoxDecoration(
+                    color: _isRecording ? Colors.red : Colors.blue,
+                    shape: BoxShape.circle,
+                    boxShadow: [BoxShadow(color: Colors.black26, blurRadius: 10, spreadRadius: _isRecording ? 5 : 0)]
+                  ),
+                  child: Icon(_isRecording ? Icons.mic : Icons.mic_none, color: Colors.white, size: 45),
+                ),
               ),
             ),
           ),
