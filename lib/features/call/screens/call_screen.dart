@@ -3,7 +3,6 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
@@ -28,38 +27,16 @@ class _CallScreenState extends State<CallScreen> {
   final AudioRecorder _recorder = AudioRecorder();
   final AudioPlayer _player = AudioPlayer();
 
-  // WebRTC
-  RTCPeerConnection? _peerConnection;
-  MediaStream? _localStream;
-  bool _isNegotiating = false;
-
   // Estado UI
   bool _isTalking = false;
   bool _isConnected = false;
   bool _isInitializing = true;
-  bool _webrtcConnected = false;
   String? _whoIsTalking;
   String? _initError;
   List<MessageModel> _messages = [];
 
   late String _myUserId;
   late String _myAlias;
-
-  // ICE servers con tu TURN
-  static const List<Map<String, dynamic>> _iceServers = [
-    {'urls': 'stun:stun.l.google.com:19302'},
-    {'urls': 'stun:stun1.l.google.com:19302'},
-    {
-      'urls': 'turn:5.78.64.107:3478',
-      'username': 'walkieuser',
-      'credential': 'walkiepass123',
-    },
-    {
-      'urls': 'turn:5.78.64.107:3478?transport=tcp',
-      'username': 'walkieuser',
-      'credential': 'walkiepass123',
-    },
-  ];
 
   @override
   void initState() {
@@ -72,6 +49,7 @@ class _CallScreenState extends State<CallScreen> {
 
   Future<void> _init() async {
     try {
+      // 1. Pedir permisos
       final micStatus = await Permission.microphone.request();
       if (!micStatus.isGranted) {
         setState(() {
@@ -81,11 +59,31 @@ class _CallScreenState extends State<CallScreen> {
         return;
       }
 
+      // 2. FORZAR AUDIO POR EL ALTAVOZ 🔊 (Con la corrección exacta para iOS)
+      await _player.setAudioContext(AudioContext(
+        android: const AudioContextAndroid(
+          isSpeakerphoneOn: true,
+          stayAwake: true,
+          contentType: AndroidContentType.music,
+          usageType: AndroidUsageType.media,
+          audioFocus: AndroidAudioFocus.gainTransient,
+        ),
+        iOS: AudioContextIOS(
+          // Obligatorio para poder usar defaultToSpeaker en iOS
+          category: AVAudioSessionCategory.playAndRecord,
+          options: const {
+            AVAudioSessionOptions.defaultToSpeaker,
+            AVAudioSessionOptions.mixWithOthers,
+          },
+        ),
+      ));
+
+      // 3. Conectar Socket
       if (!_socket.isConnected) await _socket.connect();
       _socket.joinChannel(widget.channel.id);
 
+      // 4. Cargar BD y Listeners
       await _loadMessages();
-      await _initWebRTC();
       _setupSocketListeners();
 
       if (mounted) {
@@ -109,132 +107,7 @@ class _CallScreenState extends State<CallScreen> {
     if (mounted) setState(() => _messages = msgs);
   }
 
-  Future<void> _initWebRTC() async {
-    final config = {
-      'iceServers': _iceServers,
-      'sdpSemantics': 'unified-plan',
-      'bundlePolicy': 'max-bundle',
-      'rtcpMuxPolicy': 'require',
-      'iceTransportPolicy': 'all',
-    };
-
-    _peerConnection = await createPeerConnection(config);
-
-    // Obtener micrófono (silenciado hasta que se presione PTT)
-    _localStream = await navigator.mediaDevices.getUserMedia({
-      'audio': {
-        'echoCancellation': true,
-        'noiseSuppression': true,
-        'autoGainControl': true,
-        'sampleRate': 16000,
-      },
-      'video': false,
-    });
-
-    // Silenciar hasta PTT
-    for (final track in _localStream!.getAudioTracks()) {
-      track.enabled = false;
-    }
-
-    // Agregar tracks al peer connection
-    for (final track in _localStream!.getAudioTracks()) {
-      await _peerConnection!.addTrack(track, _localStream!);
-    }
-
-    // Audio remoto → reproducir automáticamente
-    _peerConnection!.onTrack = (RTCTrackEvent event) {
-      debugPrint('🔊 Track remoto recibido: ${event.track.kind}');
-      if (event.track.kind == 'audio') {
-        event.track.enabled = true;
-      }
-    };
-
-    // Candidatos ICE → enviar al otro
-    _peerConnection!.onIceCandidate = (RTCIceCandidate? candidate) {
-      if (candidate != null && candidate.candidate != null) {
-        _socket.sendIceCandidate(widget.channel.id, candidate.toMap());
-      }
-    };
-
-    _peerConnection!.onIceConnectionState = (RTCIceConnectionState state) {
-      debugPrint('🧊 ICE: $state');
-      if (mounted) {
-        setState(() {
-          _webrtcConnected =
-              state == RTCIceConnectionState.RTCIceConnectionStateConnected ||
-              state == RTCIceConnectionState.RTCIceConnectionStateCompleted;
-        });
-      }
-    };
-
-    _peerConnection!.onSignalingState = (RTCSignalingState state) {
-      debugPrint('📡 Signaling: $state');
-      if (state == RTCSignalingState.RTCSignalingStateStable) {
-        _isNegotiating = false;
-      }
-    };
-  }
-
   void _setupSocketListeners() {
-    // Recibir offer → responder con answer
-    _socket.onReceiveOffer((data) async {
-      if (data['userId'] == _myUserId) return;
-      debugPrint('📥 Offer de: ${data['alias']}');
-
-      if (_isNegotiating) {
-        debugPrint('⚠️ Ya negociando, ignorando offer');
-        return;
-      }
-      _isNegotiating = true;
-
-      try {
-        await _peerConnection!.setRemoteDescription(
-          RTCSessionDescription(data['offer']['sdp'], data['offer']['type']),
-        );
-        final answer = await _peerConnection!.createAnswer({
-          'offerToReceiveAudio': true,
-          'offerToReceiveVideo': false,
-        });
-        await _peerConnection!.setLocalDescription(answer);
-        _socket.sendAnswer(widget.channel.id, answer.toMap());
-        debugPrint('📤 Answer enviado');
-      } catch (e) {
-        debugPrint('Error procesando offer: $e');
-        _isNegotiating = false;
-      }
-    });
-
-    // Recibir answer
-    _socket.onReceiveAnswer((data) async {
-      if (data['userId'] == _myUserId) return;
-      debugPrint('📥 Answer recibido');
-      try {
-        await _peerConnection!.setRemoteDescription(
-          RTCSessionDescription(data['answer']['sdp'], data['answer']['type']),
-        );
-        _isNegotiating = false;
-      } catch (e) {
-        debugPrint('Error procesando answer: $e');
-      }
-    });
-
-    // Recibir ICE candidates
-    _socket.onReceiveIceCandidate((data) async {
-      if (data['userId'] == _myUserId) return;
-      try {
-        if (data['candidate'] != null) {
-          await _peerConnection!.addCandidate(RTCIceCandidate(
-            data['candidate']['candidate'],
-            data['candidate']['sdpMid'],
-            data['candidate']['sdpMLineIndex'],
-          ));
-        }
-      } catch (e) {
-        debugPrint('Error ICE candidate: $e');
-      }
-    });
-
-    // PTT status del otro usuario
     _socket.onPttStatus((data) {
       if (mounted) {
         setState(() {
@@ -243,7 +116,6 @@ class _CallScreenState extends State<CallScreen> {
       }
     });
 
-    // Audio recibido por socket (fallback + historial)
     _socket.onReceiveAudio((data) async {
       await _saveAndPlayReceivedAudio(data);
     });
@@ -255,50 +127,21 @@ class _CallScreenState extends State<CallScreen> {
           duration: const Duration(seconds: 2),
           backgroundColor: const Color(0xFF1A1A1A),
         ));
-        // Nuevo usuario entró → renegociar WebRTC
-        if (!_isNegotiating) _sendOffer();
       }
     });
   }
 
-  Future<void> _sendOffer() async {
-    if (_isNegotiating || _peerConnection == null) return;
-    _isNegotiating = true;
-    try {
-      final offer = await _peerConnection!.createOffer({
-        'offerToReceiveAudio': true,
-        'offerToReceiveVideo': false,
-      });
-      await _peerConnection!.setLocalDescription(offer);
-      _socket.sendOffer(widget.channel.id, offer.toMap());
-      debugPrint('📤 Offer enviado');
-    } catch (e) {
-      debugPrint('Error enviando offer: $e');
-      _isNegotiating = false;
-    }
-  }
-
   Future<void> _startTalking() async {
-    if (_isTalking || _peerConnection == null) return;
+    if (_isTalking) return;
     setState(() => _isTalking = true);
-
-    // Activar micrófono
-    for (final track in _localStream!.getAudioTracks()) {
-      track.enabled = true;
-    }
 
     _socket.sendPttStart(widget.channel.id);
 
-    // Iniciar negociación WebRTC si no hay conexión
-    if (!_webrtcConnected && !_isNegotiating) {
-      await _sendOffer();
-    }
-
-    // Grabar para historial y fallback por socket
     try {
       final dir = await getApplicationDocumentsDirectory();
-      final path =
-          '${dir.path}/ptt_${DateTime.now().millisecondsSinceEpoch}.m4a';
+      final path = '${dir.path}/ptt_${DateTime.now().millisecondsSinceEpoch}.m4a';
+      
+      // El micrófono ya está libre, esto funcionará perfecto
       await _recorder.start(
         const RecordConfig(
           encoder: AudioEncoder.aacLc,
@@ -310,6 +153,7 @@ class _CallScreenState extends State<CallScreen> {
       );
     } catch (e) {
       debugPrint('Error iniciando grabación: $e');
+      setState(() => _isTalking = false);
     }
   }
 
@@ -317,14 +161,8 @@ class _CallScreenState extends State<CallScreen> {
     if (!_isTalking) return;
     setState(() => _isTalking = false);
 
-    // Silenciar micrófono
-    for (final track in _localStream!.getAudioTracks()) {
-      track.enabled = false;
-    }
-
     _socket.sendPttEnd(widget.channel.id);
 
-    // Detener grabación y enviar por socket como backup
     try {
       final path = await _recorder.stop();
       if (path != null) {
@@ -332,9 +170,11 @@ class _CallScreenState extends State<CallScreen> {
         if (await file.exists()) {
           final bytes = await file.readAsBytes();
           final base64Audio = base64Encode(bytes);
+          
+          // 🚀 ENVIAR AL SERVIDOR
           _socket.sendAudio(widget.channel.id, base64Audio);
 
-          // Guardar en historial
+          // GUARDAR EN HISTORIAL LOCAL
           final message = MessageModel(
             id: DateTime.now().millisecondsSinceEpoch.toString(),
             channelId: widget.channel.id,
@@ -361,12 +201,12 @@ class _CallScreenState extends State<CallScreen> {
       if (data['audioData'] != null) {
         final audioBytes = base64Decode(data['audioData']);
         await File(filePath).writeAsBytes(audioBytes);
-        // Solo reproducir por socket si WebRTC no está conectado
-        if (!_webrtcConnected) {
-          await _player.play(DeviceFileSource(filePath));
-        }
+        
+        // 🔊 REPRODUCIR AL INSTANTE
+        await _player.play(DeviceFileSource(filePath));
       }
 
+      // GUARDAR EN HISTORIAL
       final message = MessageModel(
         id: DateTime.now().millisecondsSinceEpoch.toString(),
         channelId: widget.channel.id,
@@ -386,9 +226,6 @@ class _CallScreenState extends State<CallScreen> {
   void dispose() {
     _socket.leaveChannel(widget.channel.id);
     _socket.removeChannelListeners();
-    _localStream?.getTracks().forEach((t) => t.stop());
-    _localStream?.dispose();
-    _peerConnection?.close();
     _recorder.dispose();
     _player.dispose();
     super.dispose();
@@ -407,36 +244,20 @@ class _CallScreenState extends State<CallScreen> {
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(widget.channel.name,
-                style: const TextStyle(color: Colors.white, fontSize: 18)),
+            Text(widget.channel.name, style: const TextStyle(color: Colors.white, fontSize: 18)),
             Row(
               children: [
                 Container(
                   width: 8, height: 8,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    color: _webrtcConnected
-                        ? const Color(0xFF00E676)
-                        : _isConnected
-                            ? Colors.orange
-                            : Colors.red,
+                    color: _isConnected ? Colors.orange : Colors.red,
                   ),
                 ),
                 const SizedBox(width: 4),
                 Text(
-                  _isInitializing
-                      ? 'Conectando...'
-                      : _webrtcConnected
-                          ? 'WebRTC activo'
-                          : _isConnected
-                              ? 'Socket conectado'
-                              : 'Sin conexión',
-                  style: TextStyle(
-                    color: _webrtcConnected
-                        ? const Color(0xFF00E676)
-                        : _isConnected ? Colors.orange : Colors.red,
-                    fontSize: 11,
-                  ),
+                  _isInitializing ? 'Conectando...' : _isConnected ? 'Socket conectado' : 'Sin conexión',
+                  style: TextStyle(color: _isConnected ? Colors.orange : Colors.red, fontSize: 11),
                 ),
               ],
             ),
@@ -449,66 +270,48 @@ class _CallScreenState extends State<CallScreen> {
 
   Widget _buildBody() {
     if (_isInitializing) {
-      return const Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            CircularProgressIndicator(color: Color(0xFF00E676)),
-            SizedBox(height: 16),
-            Text('Inicializando canal...', style: TextStyle(color: Colors.grey)),
-          ],
-        ),
-      );
+      return const Center(child: CircularProgressIndicator(color: Colors.orange));
     }
 
     if (_initError != null) {
       return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Icon(Icons.error_outline, color: Colors.red, size: 64),
-              const SizedBox(height: 16),
-              Text(_initError!,
-                  style: const TextStyle(color: Colors.white, fontSize: 16),
-                  textAlign: TextAlign.center),
-              const SizedBox(height: 24),
-              ElevatedButton(
-                onPressed: () {
-                  setState(() { _initError = null; _isInitializing = true; });
-                  _init();
-                },
-                style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF00E676)),
-                child: const Text('Reintentar', style: TextStyle(color: Colors.black)),
-              ),
-            ],
-          ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.error_outline, color: Colors.red, size: 64),
+            const SizedBox(height: 16),
+            Text(_initError!, style: const TextStyle(color: Colors.white)),
+            const SizedBox(height: 24),
+            ElevatedButton(
+              onPressed: () {
+                setState(() { _initError = null; _isInitializing = true; });
+                _init();
+              },
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.orange),
+              child: const Text('Reintentar', style: TextStyle(color: Colors.black)),
+            ),
+          ],
         ),
       );
     }
 
     return Column(
       children: [
-        // Banner quién habla
         AnimatedContainer(
           duration: const Duration(milliseconds: 200),
           height: _whoIsTalking != null ? 44 : 0,
-          color: const Color(0xFF00E676).withOpacity(0.12),
+          color: Colors.orange.withOpacity(0.12),
           child: _whoIsTalking != null
               ? Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    const Icon(Icons.graphic_eq, color: Color(0xFF00E676), size: 18),
+                    const Icon(Icons.graphic_eq, color: Colors.orange, size: 18),
                     const SizedBox(width: 8),
-                    Text('$_whoIsTalking está hablando...',
-                        style: const TextStyle(color: Color(0xFF00E676), fontSize: 14)),
+                    Text('$_whoIsTalking está hablando...', style: const TextStyle(color: Colors.orange, fontSize: 14)),
                   ],
                 )
               : null,
         ),
-
-        // Historial
         Expanded(
           child: _messages.isEmpty
               ? const Center(
@@ -517,11 +320,7 @@ class _CallScreenState extends State<CallScreen> {
                     children: [
                       Icon(Icons.mic_none, size: 72, color: Colors.grey),
                       SizedBox(height: 12),
-                      Text('Mantén el botón para hablar',
-                          style: TextStyle(color: Colors.grey, fontSize: 16)),
-                      SizedBox(height: 4),
-                      Text('El historial aparecerá aquí',
-                          style: TextStyle(color: Colors.grey, fontSize: 12)),
+                      Text('Mantén el botón para hablar', style: TextStyle(color: Colors.grey, fontSize: 16)),
                     ],
                   ),
                 )
@@ -531,16 +330,11 @@ class _CallScreenState extends State<CallScreen> {
                   itemBuilder: (_, i) => _messageTile(_messages[i]),
                 ),
         ),
-
-        // Botón PTT
         Container(
           padding: const EdgeInsets.fromLTRB(32, 20, 32, 44),
           decoration: BoxDecoration(
             color: const Color(0xFF0F0F0F),
-            boxShadow: [BoxShadow(
-                color: Colors.black.withOpacity(0.4),
-                blurRadius: 12,
-                offset: const Offset(0, -2))],
+            boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.4), blurRadius: 12, offset: const Offset(0, -2))],
           ),
           child: Column(
             children: [
@@ -554,35 +348,17 @@ class _CallScreenState extends State<CallScreen> {
                   height: _isTalking ? 130 : 110,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    color: _isTalking ? const Color(0xFF00E676) : const Color(0xFF1C1C1C),
-                    border: Border.all(
-                      color: _isTalking ? const Color(0xFF00E676) : const Color(0xFF333333),
-                      width: 2,
-                    ),
-                    boxShadow: _isTalking ? [BoxShadow(
-                      color: const Color(0xFF00E676).withOpacity(0.45),
-                      blurRadius: 35, spreadRadius: 10,
-                    )] : [],
+                    color: _isTalking ? Colors.orange : const Color(0xFF1C1C1C),
+                    border: Border.all(color: _isTalking ? Colors.orange : const Color(0xFF333333), width: 2),
+                    boxShadow: _isTalking ? [BoxShadow(color: Colors.orange.withOpacity(0.45), blurRadius: 35, spreadRadius: 10)] : [],
                   ),
-                  child: Icon(
-                    _isTalking ? Icons.mic : Icons.mic_none,
-                    size: 52,
-                    color: _isTalking ? Colors.black : Colors.grey,
-                  ),
+                  child: Icon(_isTalking ? Icons.mic : Icons.mic_none, size: 52, color: _isTalking ? Colors.black : Colors.grey),
                 ),
               ),
               const SizedBox(height: 14),
-              AnimatedSwitcher(
-                duration: const Duration(milliseconds: 200),
-                child: Text(
-                  _isTalking ? '🔴 Transmitiendo...' : 'Mantén para hablar',
-                  key: ValueKey(_isTalking),
-                  style: TextStyle(
-                    color: _isTalking ? const Color(0xFF00E676) : Colors.grey,
-                    fontSize: 14,
-                    fontWeight: _isTalking ? FontWeight.bold : FontWeight.normal,
-                  ),
-                ),
+              Text(
+                _isTalking ? '🔴 Transmitiendo...' : 'Mantén para hablar',
+                style: TextStyle(color: _isTalking ? Colors.orange : Colors.grey, fontSize: 14, fontWeight: _isTalking ? FontWeight.bold : FontWeight.normal),
               ),
             ],
           ),
@@ -597,45 +373,35 @@ class _CallScreenState extends State<CallScreen> {
 
     return Align(
       alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
-      child: Container(
-        margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 4),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.72),
-        decoration: BoxDecoration(
-          color: isMe ? const Color(0xFF00E676).withOpacity(0.12) : const Color(0xFF1A1A1A),
-          borderRadius: BorderRadius.only(
-            topLeft: const Radius.circular(16),
-            topRight: const Radius.circular(16),
-            bottomLeft: Radius.circular(isMe ? 16 : 4),
-            bottomRight: Radius.circular(isMe ? 4 : 16),
+      child: GestureDetector(
+        onTap: () => _player.play(DeviceFileSource(msg.audioPath)),
+        child: Container(
+          margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 4),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.72),
+          decoration: BoxDecoration(
+            color: isMe ? Colors.orange.withOpacity(0.12) : const Color(0xFF1A1A1A),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: isMe ? Colors.orange.withOpacity(0.25) : Colors.transparent),
           ),
-          border: Border.all(
-            color: isMe ? const Color(0xFF00E676).withOpacity(0.25) : Colors.transparent,
-          ),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.graphic_eq, size: 20,
-                color: isMe ? const Color(0xFF00E676) : Colors.grey),
-            const SizedBox(width: 8),
-            Flexible(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(isMe ? 'Tú' : msg.alias,
-                      style: TextStyle(
-                        color: isMe ? const Color(0xFF00E676) : Colors.grey,
-                        fontSize: 11, fontWeight: FontWeight.bold,
-                      )),
-                  const Text('Mensaje de voz',
-                      style: TextStyle(color: Colors.white, fontSize: 13)),
-                ],
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.play_circle_fill, size: 28, color: isMe ? Colors.orange : Colors.grey),
+              const SizedBox(width: 8),
+              Flexible(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(isMe ? 'Tú' : msg.alias, style: TextStyle(color: isMe ? Colors.orange : Colors.grey, fontSize: 11, fontWeight: FontWeight.bold)),
+                    const Text('Audio (Toca para oír)', style: TextStyle(color: Colors.white, fontSize: 13)),
+                  ],
+                ),
               ),
-            ),
-            const SizedBox(width: 8),
-            Text(time, style: const TextStyle(color: Colors.grey, fontSize: 10)),
-          ],
+              const SizedBox(width: 8),
+              Text(time, style: const TextStyle(color: Colors.grey, fontSize: 10)),
+            ],
+          ),
         ),
       ),
     );
