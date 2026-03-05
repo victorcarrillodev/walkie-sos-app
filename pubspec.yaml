@@ -9,19 +9,29 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  # Para las peticiones HTTP (Login, Registro, etc.)
-  http: ^1.2.0
-  # Para la conexión en tiempo real con tu servidor
-  socket_io_client: ^3.0.0
-  # Para guardar datos localmente (el token de sesión)
+  # HTTP y API
+  dio: ^5.4.0
+  
+  # Socket.io para WebRTC y señalización
+  socket_io_client: ^2.0.3+1
+
+  # WebRTC
+
+  # Almacenamiento local (guardar token y conversaciones)
   shared_preferences: ^2.2.2
-  # Para guardar los audios y conversaciones en el dispositivo
-  sqflite: ^2.3.0
-  path_provider: ^2.1.2
-  # Para grabar y reproducir audio
-  record: ^6.1.2
-  audioplayers: ^6.1.0
+  sqflite: ^2.3.2
   path: ^1.9.0
+
+  # Manejo de estado
+  provider: ^6.1.1
+
+  # UI
+  cupertino_icons: ^1.0.6
+  flutter_webrtc: ^1.3.1
+  path_provider: ^2.1.2
+  permission_handler: ^11.3.0
+  record: ^6.2.0
+  audioplayers: ^6.6.0
   
 dev_dependencies:
   flutter_test:
