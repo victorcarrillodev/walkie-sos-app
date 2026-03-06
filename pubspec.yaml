@@ -27,11 +27,11 @@ dependencies:
 
   # UI
   cupertino_icons: ^1.0.6
-  flutter_webrtc: ^1.3.1
   path_provider: ^2.1.2
   permission_handler: ^11.3.0
   record: ^6.2.0
   audioplayers: ^6.6.0
+
   
 dev_dependencies:
   flutter_test:
@@ -40,3 +40,5 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/sounds/beep.mp3

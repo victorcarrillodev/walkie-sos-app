@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:socket_io_client/socket_io_client.dart' as IO;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -15,62 +17,41 @@ class SocketService {
   IO.Socket? get socket => _socket;
 
   Future<void> connect() async {
-    // Si ya está conectado, no reconectar
-    if (_socket != null && _socket!.connected) {
-      debugPrint('✅ Socket ya conectado, reutilizando');
-      return;
-    }
+  if (_socket != null && _socket!.connected) return;
 
-    final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString('token');
+  final prefs = await SharedPreferences.getInstance();
+  final token = prefs.getString('token');
+  if (token == null) return;
 
-    if (token == null) {
-      debugPrint('❌ No hay token guardado');
-      return;
-    }
-
-    debugPrint('🔌 Conectando socket...');
-
-    // Si existe pero desconectado, limpiar
-    if (_socket != null) {
-      _socket!.dispose();
-      _socket = null;
-    }
-
-    _socket = IO.io(
-      baseUrl,
-      IO.OptionBuilder()
-          .setTransports(['websocket'])
-          .setAuth({'token': token})
-          .disableAutoConnect()
-          .enableReconnection()
-          .setReconnectionAttempts(10)
-          .setReconnectionDelay(2000)
-          .setTimeout(10000)
-          .build(),
-    );
-
-    _socket!.connect();
-
-    _socket!.onConnect((_) {
-      debugPrint('✅ Socket conectado - ID: ${_socket!.id}');
-    });
-
-    _socket!.onDisconnect((reason) {
-      debugPrint('🔌 Socket desconectado: $reason');
-    });
-
-    _socket!.onConnectError((data) {
-      debugPrint('❌ Error conexión socket: $data');
-    });
-
-    _socket!.onReconnect((_) {
-      debugPrint('🔄 Socket reconectado');
-    });
-
-    // Esperar a que conecte
-    await Future.delayed(const Duration(milliseconds: 1500));
+  if (_socket != null) {
+    _socket!.dispose();
+    _socket = null;
   }
+
+  // Usamos un Completer para esperar la conexión real
+  Completer<void> connectionCompleter = Completer();
+
+  _socket = IO.io(baseUrl, IO.OptionBuilder()
+      .setTransports(['websocket'])
+      .setAuth({'token': token})
+      .disableAutoConnect()
+      .build());
+
+  _socket!.connect();
+
+  _socket!.onConnect((_) {
+    debugPrint('✅ Socket conectado - ID: ${_socket!.id}');
+    if (!connectionCompleter.isCompleted) connectionCompleter.complete();
+  });
+
+  _socket!.onConnectError((data) {
+    debugPrint('❌ Error conexión socket: $data');
+    if (!connectionCompleter.isCompleted) connectionCompleter.completeError(data);
+  });
+
+  // Retornamos el futuro del completer en lugar de un Future.delayed
+  return connectionCompleter.future;
+}
 
   void joinChannel(String channelId) {
     debugPrint('📻 Uniéndose al canal: $channelId');

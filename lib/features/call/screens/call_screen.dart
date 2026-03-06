@@ -1,6 +1,7 @@
-import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
+import 'dart:math';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
@@ -26,14 +27,16 @@ class _CallScreenState extends State<CallScreen> {
   final DatabaseService _db = DatabaseService();
   final AudioRecorder _recorder = AudioRecorder();
   final AudioPlayer _player = AudioPlayer();
+  final AudioPlayer _beepPlayer = AudioPlayer();
 
-  // Estado UI
   bool _isTalking = false;
   bool _isConnected = false;
   bool _isInitializing = true;
   String? _whoIsTalking;
   String? _initError;
   List<MessageModel> _messages = [];
+  String? _beepPath;
+  final Map<String, bool> _playingMessages = {};
 
   late String _myUserId;
   late String _myAlias;
@@ -49,7 +52,6 @@ class _CallScreenState extends State<CallScreen> {
 
   Future<void> _init() async {
     try {
-      // 1. Pedir permisos
       final micStatus = await Permission.microphone.request();
       if (!micStatus.isGranted) {
         setState(() {
@@ -59,46 +61,76 @@ class _CallScreenState extends State<CallScreen> {
         return;
       }
 
-      // 2. FORZAR AUDIO POR EL ALTAVOZ 🔊 (Con la corrección exacta para iOS)
-      await _player.setAudioContext(AudioContext(
-        android: const AudioContextAndroid(
-          isSpeakerphoneOn: true,
-          stayAwake: true,
-          contentType: AndroidContentType.music,
-          usageType: AndroidUsageType.media,
-          audioFocus: AndroidAudioFocus.gainTransient,
-        ),
-        iOS: AudioContextIOS(
-          // Obligatorio para poder usar defaultToSpeaker en iOS
-          category: AVAudioSessionCategory.playAndRecord,
-          options: const {
-            AVAudioSessionOptions.defaultToSpeaker,
-            AVAudioSessionOptions.mixWithOthers,
-          },
-        ),
-      ));
-
-      // 3. Conectar Socket
       if (!_socket.isConnected) await _socket.connect();
       _socket.joinChannel(widget.channel.id);
-
-      // 4. Cargar BD y Listeners
       await _loadMessages();
-      _setupSocketListeners();
+      await _generateBeep();
+      _setupListeners();
 
-      if (mounted) {
-        setState(() {
-          _isConnected = true;
-          _isInitializing = false;
-        });
-      }
+      if (mounted) setState(() { _isConnected = true; _isInitializing = false; });
     } catch (e) {
-      if (mounted) {
-        setState(() {
-          _initError = 'Error al conectar: $e';
-          _isInitializing = false;
-        });
+      if (mounted) setState(() { _initError = '$e'; _isInitializing = false; });
+    }
+  }
+
+  Future<void> _generateBeep() async {
+    try {
+      final dir = await getApplicationDocumentsDirectory();
+      _beepPath = '${dir.path}/beep.wav';
+      if (await File(_beepPath!).exists()) return;
+
+      const sampleRate = 44100;
+      const frequency = 880.0;
+      const durationMs = 150;
+      final numSamples = (sampleRate * durationMs / 1000).round();
+
+      final samples = Int16List(numSamples);
+      for (int i = 0; i < numSamples; i++) {
+        final t = i / sampleRate;
+        double envelope = 1.0;
+        if (i < 100) envelope = i / 100.0;
+        if (i > numSamples - 100) envelope = (numSamples - i) / 100.0;
+        samples[i] = (sin(2 * pi * frequency * t) * 32767 * envelope)
+            .round()
+            .clamp(-32768, 32767);
       }
+
+      final byteData = ByteData(44 + numSamples * 2);
+      byteData.setUint8(0, 0x52); byteData.setUint8(1, 0x49);
+      byteData.setUint8(2, 0x46); byteData.setUint8(3, 0x46);
+      byteData.setUint32(4, 36 + numSamples * 2, Endian.little);
+      byteData.setUint8(8, 0x57); byteData.setUint8(9, 0x41);
+      byteData.setUint8(10, 0x56); byteData.setUint8(11, 0x45);
+      byteData.setUint8(12, 0x66); byteData.setUint8(13, 0x6D);
+      byteData.setUint8(14, 0x74); byteData.setUint8(15, 0x20);
+      byteData.setUint32(16, 16, Endian.little);
+      byteData.setUint16(20, 1, Endian.little);
+      byteData.setUint16(22, 1, Endian.little);
+      byteData.setUint32(24, sampleRate, Endian.little);
+      byteData.setUint32(28, sampleRate * 2, Endian.little);
+      byteData.setUint16(32, 2, Endian.little);
+      byteData.setUint16(34, 16, Endian.little);
+      byteData.setUint8(36, 0x64); byteData.setUint8(37, 0x61);
+      byteData.setUint8(38, 0x74); byteData.setUint8(39, 0x61);
+      byteData.setUint32(40, numSamples * 2, Endian.little);
+      for (int i = 0; i < numSamples; i++) {
+        byteData.setInt16(44 + i * 2, samples[i], Endian.little);
+      }
+
+      await File(_beepPath!).writeAsBytes(byteData.buffer.asUint8List());
+      debugPrint('✅ Beep generado');
+    } catch (e) {
+      debugPrint('Error generando beep: $e');
+    }
+  }
+
+  Future<void> _playBeep() async {
+    try {
+      if (_beepPath == null) return;
+      await _beepPlayer.play(DeviceFileSource(_beepPath!));
+      await Future.delayed(const Duration(milliseconds: 200));
+    } catch (e) {
+      debugPrint('Error beep: $e');
     }
   }
 
@@ -107,41 +139,30 @@ class _CallScreenState extends State<CallScreen> {
     if (mounted) setState(() => _messages = msgs);
   }
 
-  void _setupSocketListeners() {
+  void _setupListeners() {
     _socket.onPttStatus((data) {
-      if (mounted) {
-        setState(() {
-          _whoIsTalking = (data['isTalking'] == true) ? data['alias'] : null;
-        });
-      }
+      if (mounted) setState(() {
+        _whoIsTalking = (data['isTalking'] == true) ? data['alias'] : null;
+      });
     });
 
     _socket.onReceiveAudio((data) async {
-      await _saveAndPlayReceivedAudio(data);
-    });
-
-    _socket.onChannelEvent((data) {
-      if (mounted && data['type'] == 'JOINED') {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('${data['message']}'),
-          duration: const Duration(seconds: 2),
-          backgroundColor: const Color(0xFF1A1A1A),
-        ));
-      }
+      debugPrint('🔊 Audio recibido: ${data.runtimeType}');
+      final map = data is List ? data[0] : data;
+      await _playAudio(map);
     });
   }
 
   Future<void> _startTalking() async {
     if (_isTalking) return;
     setState(() => _isTalking = true);
-
     _socket.sendPttStart(widget.channel.id);
+    await _playBeep();
 
     try {
       final dir = await getApplicationDocumentsDirectory();
-      final path = '${dir.path}/ptt_${DateTime.now().millisecondsSinceEpoch}.m4a';
-      
-      // El micrófono ya está libre, esto funcionará perfecto
+      final path =
+          '${dir.path}/ptt_${DateTime.now().millisecondsSinceEpoch}.m4a';
       await _recorder.start(
         const RecordConfig(
           encoder: AudioEncoder.aacLc,
@@ -151,8 +172,9 @@ class _CallScreenState extends State<CallScreen> {
         ),
         path: path,
       );
+      debugPrint('🎙️ Grabando...');
     } catch (e) {
-      debugPrint('Error iniciando grabación: $e');
+      debugPrint('Error grabando: $e');
       setState(() => _isTalking = false);
     }
   }
@@ -160,65 +182,94 @@ class _CallScreenState extends State<CallScreen> {
   Future<void> _stopTalking() async {
     if (!_isTalking) return;
     setState(() => _isTalking = false);
-
     _socket.sendPttEnd(widget.channel.id);
 
     try {
       final path = await _recorder.stop();
-      if (path != null) {
-        final file = File(path);
-        if (await file.exists()) {
-          final bytes = await file.readAsBytes();
-          final base64Audio = base64Encode(bytes);
-          
-          // 🚀 ENVIAR AL SERVIDOR
-          _socket.sendAudio(widget.channel.id, base64Audio);
+      if (path == null) return;
 
-          // GUARDAR EN HISTORIAL LOCAL
-          final message = MessageModel(
-            id: DateTime.now().millisecondsSinceEpoch.toString(),
-            channelId: widget.channel.id,
-            userId: _myUserId,
-            alias: _myAlias,
-            audioPath: path,
-            createdAt: DateTime.now(),
-          );
-          await _db.saveMessage(message);
-          if (mounted) setState(() => _messages.add(message));
-        }
-      }
+      final file = File(path);
+      if (!await file.exists()) return;
+
+      final bytes = await file.readAsBytes();
+      final base64Audio = base64Encode(bytes);
+      debugPrint('📤 Enviando audio: ${bytes.length} bytes');
+      _socket.sendAudio(widget.channel.id, base64Audio);
+
+      final msg = MessageModel(
+        id: DateTime.now().millisecondsSinceEpoch.toString(),
+        channelId: widget.channel.id,
+        userId: _myUserId,
+        alias: _myAlias,
+        audioPath: path,
+        createdAt: DateTime.now(),
+      );
+      await _db.saveMessage(msg);
+      if (mounted) setState(() => _messages.add(msg));
     } catch (e) {
-      debugPrint('Error deteniendo grabación: $e');
+      debugPrint('Error enviando: $e');
     }
   }
 
-  Future<void> _saveAndPlayReceivedAudio(Map<String, dynamic> data) async {
+  Future<void> _playAudio(dynamic data) async {
     try {
       final dir = await getApplicationDocumentsDirectory();
-      final fileName = 'recv_${DateTime.now().millisecondsSinceEpoch}.m4a';
-      final filePath = '${dir.path}/$fileName';
+      final path =
+          '${dir.path}/recv_${DateTime.now().millisecondsSinceEpoch}.m4a';
+      final bytes = base64Decode(data['audioData']);
+      await File(path).writeAsBytes(bytes);
+      await _player.play(DeviceFileSource(path));
+      debugPrint('▶️ Reproduciendo de ${data['alias']}');
 
-      if (data['audioData'] != null) {
-        final audioBytes = base64Decode(data['audioData']);
-        await File(filePath).writeAsBytes(audioBytes);
-        
-        // 🔊 REPRODUCIR AL INSTANTE
-        await _player.play(DeviceFileSource(filePath));
-      }
-
-      // GUARDAR EN HISTORIAL
-      final message = MessageModel(
+      final msg = MessageModel(
         id: DateTime.now().millisecondsSinceEpoch.toString(),
         channelId: widget.channel.id,
         userId: data['userId'] ?? '',
         alias: data['alias'] ?? 'Desconocido',
-        audioPath: filePath,
+        audioPath: path,
         createdAt: DateTime.now(),
       );
-      await _db.saveMessage(message);
-      if (mounted) setState(() => _messages.add(message));
+      await _db.saveMessage(msg);
+      if (mounted) setState(() => _messages.add(msg));
     } catch (e) {
-      debugPrint('Error guardando audio: $e');
+      debugPrint('Error reproduciendo: $e');
+    }
+  }
+
+  Future<void> _togglePlayMessage(MessageModel msg) async {
+    final isPlaying = _playingMessages[msg.id] == true;
+
+    if (isPlaying) {
+      await _player.stop();
+      if (mounted) setState(() => _playingMessages[msg.id] = false);
+      return;
+    }
+
+    await _player.stop();
+    if (mounted) setState(() {
+      for (final key in _playingMessages.keys) {
+        _playingMessages[key] = false;
+      }
+      _playingMessages[msg.id] = true;
+    });
+
+    try {
+      final file = File(msg.audioPath);
+      if (!await file.exists()) {
+        debugPrint('❌ Archivo no existe: ${msg.audioPath}');
+        if (mounted) setState(() => _playingMessages[msg.id] = false);
+        return;
+      }
+
+      await _player.play(DeviceFileSource(msg.audioPath));
+      debugPrint('▶️ Reproduciendo mensaje: ${msg.audioPath}');
+
+      _player.onPlayerComplete.listen((_) {
+        if (mounted) setState(() => _playingMessages[msg.id] = false);
+      });
+    } catch (e) {
+      debugPrint('Error reproduciendo mensaje: $e');
+      if (mounted) setState(() => _playingMessages[msg.id] = false);
     }
   }
 
@@ -228,6 +279,7 @@ class _CallScreenState extends State<CallScreen> {
     _socket.removeChannelListeners();
     _recorder.dispose();
     _player.dispose();
+    _beepPlayer.dispose();
     super.dispose();
   }
 
@@ -244,23 +296,27 @@ class _CallScreenState extends State<CallScreen> {
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(widget.channel.name, style: const TextStyle(color: Colors.white, fontSize: 18)),
-            Row(
-              children: [
-                Container(
-                  width: 8, height: 8,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: _isConnected ? Colors.orange : Colors.red,
-                  ),
+            Text(widget.channel.name,
+                style: const TextStyle(color: Colors.white, fontSize: 18)),
+            Row(children: [
+              Container(
+                width: 8, height: 8,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: _isConnected ? const Color(0xFF00E676) : Colors.red,
                 ),
-                const SizedBox(width: 4),
-                Text(
-                  _isInitializing ? 'Conectando...' : _isConnected ? 'Socket conectado' : 'Sin conexión',
-                  style: TextStyle(color: _isConnected ? Colors.orange : Colors.red, fontSize: 11),
+              ),
+              const SizedBox(width: 4),
+              Text(
+                _isInitializing
+                    ? 'Conectando...'
+                    : _isConnected ? 'En línea' : 'Sin conexión',
+                style: TextStyle(
+                  color: _isConnected ? const Color(0xFF00E676) : Colors.red,
+                  fontSize: 11,
                 ),
-              ],
-            ),
+              ),
+            ]),
           ],
         ),
       ),
@@ -270,139 +326,223 @@ class _CallScreenState extends State<CallScreen> {
 
   Widget _buildBody() {
     if (_isInitializing) {
-      return const Center(child: CircularProgressIndicator(color: Colors.orange));
+      return const Center(child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          CircularProgressIndicator(color: Color(0xFF00E676)),
+          SizedBox(height: 16),
+          Text('Conectando...', style: TextStyle(color: Colors.grey)),
+        ],
+      ));
     }
 
     if (_initError != null) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(Icons.error_outline, color: Colors.red, size: 64),
-            const SizedBox(height: 16),
-            Text(_initError!, style: const TextStyle(color: Colors.white)),
-            const SizedBox(height: 24),
-            ElevatedButton(
-              onPressed: () {
-                setState(() { _initError = null; _isInitializing = true; });
-                _init();
-              },
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.orange),
-              child: const Text('Reintentar', style: TextStyle(color: Colors.black)),
-            ),
-          ],
-        ),
-      );
+      return Center(child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Icon(Icons.error_outline, color: Colors.red, size: 64),
+          const SizedBox(height: 16),
+          Text(_initError!,
+              style: const TextStyle(color: Colors.white),
+              textAlign: TextAlign.center),
+          const SizedBox(height: 24),
+          ElevatedButton(
+            onPressed: () {
+              setState(() { _initError = null; _isInitializing = true; });
+              _init();
+            },
+            style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF00E676)),
+            child: const Text('Reintentar',
+                style: TextStyle(color: Colors.black)),
+          ),
+        ],
+      ));
     }
 
-    return Column(
-      children: [
-        AnimatedContainer(
-          duration: const Duration(milliseconds: 200),
-          height: _whoIsTalking != null ? 44 : 0,
-          color: Colors.orange.withOpacity(0.12),
-          child: _whoIsTalking != null
-              ? Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const Icon(Icons.graphic_eq, color: Colors.orange, size: 18),
-                    const SizedBox(width: 8),
-                    Text('$_whoIsTalking está hablando...', style: const TextStyle(color: Colors.orange, fontSize: 14)),
-                  ],
-                )
-              : null,
-        ),
-        Expanded(
-          child: _messages.isEmpty
-              ? const Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.mic_none, size: 72, color: Colors.grey),
-                      SizedBox(height: 12),
-                      Text('Mantén el botón para hablar', style: TextStyle(color: Colors.grey, fontSize: 16)),
-                    ],
-                  ),
-                )
-              : ListView.builder(
-                  padding: const EdgeInsets.all(12),
-                  itemCount: _messages.length,
-                  itemBuilder: (_, i) => _messageTile(_messages[i]),
-                ),
-        ),
-        Container(
-          padding: const EdgeInsets.fromLTRB(32, 20, 32, 44),
-          decoration: BoxDecoration(
-            color: const Color(0xFF0F0F0F),
-            boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.4), blurRadius: 12, offset: const Offset(0, -2))],
-          ),
-          child: Column(
-            children: [
-              GestureDetector(
-                onTapDown: (_) => _startTalking(),
-                onTapUp: (_) => _stopTalking(),
-                onTapCancel: () => _stopTalking(),
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 150),
-                  width: _isTalking ? 130 : 110,
-                  height: _isTalking ? 130 : 110,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: _isTalking ? Colors.orange : const Color(0xFF1C1C1C),
-                    border: Border.all(color: _isTalking ? Colors.orange : const Color(0xFF333333), width: 2),
-                    boxShadow: _isTalking ? [BoxShadow(color: Colors.orange.withOpacity(0.45), blurRadius: 35, spreadRadius: 10)] : [],
-                  ),
-                  child: Icon(_isTalking ? Icons.mic : Icons.mic_none, size: 52, color: _isTalking ? Colors.black : Colors.grey),
-                ),
+    return Column(children: [
+      AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        height: _whoIsTalking != null ? 44 : 0,
+        color: const Color(0xFF00E676).withOpacity(0.12),
+        child: _whoIsTalking != null
+            ? Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                const Icon(Icons.graphic_eq,
+                    color: Color(0xFF00E676), size: 18),
+                const SizedBox(width: 8),
+                Text('$_whoIsTalking está hablando...',
+                    style: const TextStyle(
+                        color: Color(0xFF00E676), fontSize: 14)),
+              ])
+            : null,
+      ),
+      Expanded(
+        child: _messages.isEmpty
+            ? const Center(child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.mic_none, size: 72, color: Colors.grey),
+                  SizedBox(height: 12),
+                  Text('Mantén el botón para hablar',
+                      style: TextStyle(color: Colors.grey, fontSize: 16)),
+                ],
+              ))
+            : ListView.builder(
+                padding: const EdgeInsets.all(12),
+                itemCount: _messages.length,
+                itemBuilder: (_, i) => _messageTile(_messages[i]),
               ),
-              const SizedBox(height: 14),
-              Text(
-                _isTalking ? '🔴 Transmitiendo...' : 'Mantén para hablar',
-                style: TextStyle(color: _isTalking ? Colors.orange : Colors.grey, fontSize: 14, fontWeight: _isTalking ? FontWeight.bold : FontWeight.normal),
-              ),
-            ],
-          ),
+      ),
+      Container(
+        padding: const EdgeInsets.fromLTRB(32, 20, 32, 44),
+        decoration: BoxDecoration(
+          color: const Color(0xFF0F0F0F),
+          boxShadow: [BoxShadow(
+            color: Colors.black.withOpacity(0.4),
+            blurRadius: 12,
+            offset: const Offset(0, -2),
+          )],
         ),
-      ],
-    );
+        child: Column(children: [
+          GestureDetector(
+            onTapDown: (_) => _startTalking(),
+            onTapUp: (_) => _stopTalking(),
+            onTapCancel: () => _stopTalking(),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 150),
+              width: _isTalking ? 130 : 110,
+              height: _isTalking ? 130 : 110,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: _isTalking
+                    ? const Color(0xFF00E676)
+                    : const Color(0xFF1C1C1C),
+                border: Border.all(
+                  color: _isTalking
+                      ? const Color(0xFF00E676)
+                      : const Color(0xFF333333),
+                  width: 2,
+                ),
+                boxShadow: _isTalking ? [BoxShadow(
+                  color: const Color(0xFF00E676).withOpacity(0.45),
+                  blurRadius: 35,
+                  spreadRadius: 10,
+                )] : [],
+              ),
+              child: Icon(
+                _isTalking ? Icons.mic : Icons.mic_none,
+                size: 52,
+                color: _isTalking ? Colors.black : Colors.grey,
+              ),
+            ),
+          ),
+          const SizedBox(height: 14),
+          Text(
+            _isTalking ? '🔴 Grabando...' : 'Mantén para hablar',
+            style: TextStyle(
+              color: _isTalking ? const Color(0xFF00E676) : Colors.grey,
+              fontSize: 14,
+              fontWeight: _isTalking
+                  ? FontWeight.bold
+                  : FontWeight.normal,
+            ),
+          ),
+        ]),
+      ),
+    ]);
   }
 
   Widget _messageTile(MessageModel msg) {
     final isMe = msg.userId == _myUserId;
-    final time = '${msg.createdAt.hour.toString().padLeft(2, '0')}:${msg.createdAt.minute.toString().padLeft(2, '0')}';
+    final time =
+        '${msg.createdAt.hour.toString().padLeft(2, '0')}:${msg.createdAt.minute.toString().padLeft(2, '0')}';
+    final isPlaying = _playingMessages[msg.id] == true;
 
     return Align(
       alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
-      child: GestureDetector(
-        onTap: () => _player.play(DeviceFileSource(msg.audioPath)),
-        child: Container(
-          margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 4),
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-          constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.72),
-          decoration: BoxDecoration(
-            color: isMe ? Colors.orange.withOpacity(0.12) : const Color(0xFF1A1A1A),
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: isMe ? Colors.orange.withOpacity(0.25) : Colors.transparent),
+      child: Container(
+        margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        constraints:
+            BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.72),
+        decoration: BoxDecoration(
+          color: isMe
+              ? const Color(0xFF00E676).withOpacity(0.12)
+              : const Color(0xFF1A1A1A),
+          borderRadius: BorderRadius.only(
+            topLeft: const Radius.circular(16),
+            topRight: const Radius.circular(16),
+            bottomLeft: Radius.circular(isMe ? 16 : 4),
+            bottomRight: Radius.circular(isMe ? 4 : 16),
           ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.play_circle_fill, size: 28, color: isMe ? Colors.orange : Colors.grey),
-              const SizedBox(width: 8),
-              Flexible(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(isMe ? 'Tú' : msg.alias, style: TextStyle(color: isMe ? Colors.orange : Colors.grey, fontSize: 11, fontWeight: FontWeight.bold)),
-                    const Text('Audio (Toca para oír)', style: TextStyle(color: Colors.white, fontSize: 13)),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 8),
-              Text(time, style: const TextStyle(color: Colors.grey, fontSize: 10)),
-            ],
+          border: Border.all(
+            color: isMe
+                ? const Color(0xFF00E676).withOpacity(0.25)
+                : Colors.transparent,
           ),
         ),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          GestureDetector(
+            onTap: () => _togglePlayMessage(msg),
+            child: Container(
+              width: 38,
+              height: 38,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: isMe
+                    ? const Color(0xFF00E676).withOpacity(0.2)
+                    : const Color(0xFF333333),
+              ),
+              child: Icon(
+                isPlaying ? Icons.stop : Icons.play_arrow,
+                size: 20,
+                color: isMe ? const Color(0xFF00E676) : Colors.white,
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Flexible(child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                isMe ? 'Tú' : msg.alias,
+                style: TextStyle(
+                  color: isMe ? const Color(0xFF00E676) : Colors.grey,
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              Row(children: [
+                ...List.generate(12, (i) => AnimatedContainer(
+                  duration: Duration(milliseconds: 200 + i * 30),
+                  margin: const EdgeInsets.symmetric(horizontal: 1),
+                  width: 2,
+                  height: isPlaying ? (4.0 + (i % 4) * 5) : 4,
+                  decoration: BoxDecoration(
+                    color: isMe
+                        ? const Color(0xFF00E676)
+                            .withOpacity(isPlaying ? 1 : 0.5)
+                        : Colors.grey.withOpacity(isPlaying ? 1 : 0.5),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                )),
+                const SizedBox(width: 6),
+                Text(
+                  'Mensaje de voz',
+                  style: TextStyle(
+                    color: isPlaying
+                        ? (isMe ? const Color(0xFF00E676) : Colors.white)
+                        : Colors.grey,
+                    fontSize: 12,
+                  ),
+                ),
+              ]),
+            ],
+          )),
+          const SizedBox(width: 8),
+          Text(time,
+              style: const TextStyle(color: Colors.grey, fontSize: 10)),
+        ]),
       ),
     );
   }

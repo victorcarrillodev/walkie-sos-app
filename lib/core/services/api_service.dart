@@ -1,4 +1,5 @@
 import 'package:dio/dio.dart';
+import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class ApiService {
@@ -81,29 +82,43 @@ class ApiService {
 
   // Canal directo entre dos usuarios
   Future<Map<String, dynamic>> createDirectChannel(
-    String myUserId, String targetUserId) async {
-  final ids = [myUserId, targetUserId]..sort();
-  final channelName = 'direct_${ids[0]}_${ids[1]}';
+      String myUserId, String targetUserId) async {
+    final ids = [myUserId, targetUserId]..sort();
+    final channelName = 'direct_${ids[0]}_${ids[1]}';
 
-  try {
-    // Primero intentar unirse por nombre (por si ya existe)
-    final joinResponse = await _dio.post('/channels/join',
-        data: {'name': channelName});
-    // Si se unió exitosamente, buscar el canal en mis canales
-    final myChannels = await _dio.get('/channels/mine');
-    final List channels = myChannels.data;
-    final existing = channels.firstWhere(
-      (c) => c['name'] == channelName,
-      orElse: () => null,
-    );
-    if (existing != null) return existing;
-    return joinResponse.data;
-  } on DioException catch (e) {
-    // Si ya es miembro (400) o canal no existe, intentar crear
-    if (e.response?.statusCode == 400) {
+    debugPrint('🔍 Buscando canal directo: $channelName');
+
+    // Paso 1: ¿Ya soy miembro?
+    try {
+      final myChannels = await _dio.get('/channels/mine');
+      final List channels = myChannels.data;
+      final existing = channels.firstWhere(
+        (c) => c['name'] == channelName,
+        orElse: () => null,
+      );
+      if (existing != null) {
+        debugPrint('✅ Ya soy miembro del canal: ${existing['id']}');
+        return existing;
+      }
+    } catch (e) {
+      debugPrint('⚠️ Error buscando mis canales: $e');
+    }
+
+    // Paso 2: Intentar unirse
+    try {
+      await _dio.post('/channels/join', data: {'name': channelName});
+      debugPrint('✅ Me uní al canal existente');
+      final myChannels = await _dio.get('/channels/mine');
+      final List channels = myChannels.data;
+      final joined = channels.firstWhere(
+        (c) => c['name'] == channelName,
+        orElse: () => null,
+      );
+      if (joined != null) return joined;
+    } on DioException catch (e) {
       final errorMsg = e.response?.data?['error'] ?? '';
+      debugPrint('⚠️ Join resultado: $errorMsg');
       if (errorMsg.contains('miembro') || errorMsg.contains('member')) {
-        // Ya es miembro, obtener el canal
         final myChannels = await _dio.get('/channels/mine');
         final List channels = myChannels.data;
         final existing = channels.firstWhere(
@@ -113,14 +128,16 @@ class ApiService {
         if (existing != null) return existing;
       }
     }
-    // Canal no existe, crear uno nuevo
+
+    // Paso 3: Crear canal nuevo
+    debugPrint('📡 Creando canal directo nuevo: $channelName');
     final response = await _dio.post('/channels', data: {
       'name': channelName,
-      'isPrivate': true,
+      'isPrivate': false,
+      'description': 'Canal directo',
     });
     return response.data;
   }
-}
 
   // CONTACTOS
   Future<List<dynamic>> getContacts() async {
