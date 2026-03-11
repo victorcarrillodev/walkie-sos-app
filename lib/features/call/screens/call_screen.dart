@@ -2,17 +2,22 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 import 'dart:math';
+
+import 'package:audio_session/audio_session.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_background/flutter_background.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 import 'package:record/record.dart';
+
 import '../../../core/models/channel_model.dart';
 import '../../../core/models/message_model.dart';
 import '../../../core/providers/auth_provider.dart';
 import '../../../core/services/database_service.dart';
 import '../../../core/services/socket_service.dart';
+import '../../../core/services/webrtc_service.dart';
 
 class CallScreen extends StatefulWidget {
   final ChannelModel channel;
@@ -25,6 +30,8 @@ class CallScreen extends StatefulWidget {
 class _CallScreenState extends State<CallScreen> {
   final SocketService _socket = SocketService();
   final DatabaseService _db = DatabaseService();
+  final WebRTCService _webRTCService = WebRTCService();
+
   final AudioRecorder _recorder = AudioRecorder();
   final AudioPlayer _player = AudioPlayer();
   final AudioPlayer _beepPlayer = AudioPlayer();
@@ -52,8 +59,14 @@ class _CallScreenState extends State<CallScreen> {
 
   Future<void> _init() async {
     try {
-      final micStatus = await Permission.microphone.request();
-      if (!micStatus.isGranted) {
+      // Pedimos múltiples permisos al mismo tiempo: Micrófono y Notificaciones
+      Map<Permission, PermissionStatus> statuses = await [
+        Permission.microphone,
+        Permission.notification,
+      ].request();
+
+      // Verificamos si nos dio el permiso del micrófono (es el único estrictamente necesario para hablar)
+      if (statuses[Permission.microphone] != PermissionStatus.granted) {
         setState(() {
           _initError = 'Se necesita permiso de micrófono.';
           _isInitializing = false;
@@ -61,8 +74,13 @@ class _CallScreenState extends State<CallScreen> {
         return;
       }
 
+      // Configurar audio y ejecución en segundo plano
+      await _setupBackgroundExecution();
+
       if (!_socket.isConnected) await _socket.connect();
       _socket.joinChannel(widget.channel.id);
+      _webRTCService.init(widget.channel.id); 
+      
       await _loadMessages();
       await _generateBeep();
       _setupListeners();
@@ -70,6 +88,33 @@ class _CallScreenState extends State<CallScreen> {
       if (mounted) setState(() { _isConnected = true; _isInitializing = false; });
     } catch (e) {
       if (mounted) setState(() { _initError = '$e'; _isInitializing = false; });
+    }
+  }
+
+  Future<void> _setupBackgroundExecution() async {
+    try {
+      // 1. Configurar la sesión de audio para que no se interrumpa
+      final session = await AudioSession.instance;
+      // USAR speech() SIN const
+      await session.configure(AudioSessionConfiguration.speech());
+
+      // 2. Configurar el servicio en segundo plano (Solo Android)
+      if (Platform.isAndroid) {
+        final androidConfig = FlutterBackgroundAndroidConfig(
+          notificationTitle: "Walkie SOS Activo",
+          notificationText: "Escuchando el canal de emergencia...",
+          notificationImportance: AndroidNotificationImportance.normal, // Cambiado a normal
+          notificationIcon: const AndroidResource(name: 'ic_launcher', defType: 'mipmap'),
+        );
+        
+        bool hasPermissions = await FlutterBackground.initialize(androidConfig: androidConfig);
+        if (hasPermissions) {
+          await FlutterBackground.enableBackgroundExecution();
+          debugPrint('✅ Ejecución en segundo plano activada');
+        }
+      }
+    } catch (e) {
+      debugPrint('❌ Error al configurar segundo plano: $e');
     }
   }
 
@@ -147,22 +192,29 @@ class _CallScreenState extends State<CallScreen> {
     });
 
     _socket.onReceiveAudio((data) async {
-      debugPrint('🔊 Audio recibido: ${data.runtimeType}');
+      debugPrint('📥 Archivo de historial recibido por socket');
       final map = data is List ? data[0] : data;
-      await _playAudio(map);
+      await _saveAudioHistory(map); 
     });
   }
 
   Future<void> _startTalking() async {
-    if (_isTalking) return;
+    // Evita grabar si ya está hablando alguien más (Half-Duplex)
+    if (_isTalking || _whoIsTalking != null) return; 
+
     setState(() => _isTalking = true);
+    
+    // 1. Iniciar transmisión en TIEMPO REAL
+    await _webRTCService.startTalking();
+    
+    // 2. Avisar por socket y hacer beep
     _socket.sendPttStart(widget.channel.id);
     await _playBeep();
 
+    // 3. Iniciar grabación local para el historial (.m4a)
     try {
       final dir = await getApplicationDocumentsDirectory();
-      final path =
-          '${dir.path}/ptt_${DateTime.now().millisecondsSinceEpoch}.m4a';
+      final path = '${dir.path}/ptt_${DateTime.now().millisecondsSinceEpoch}.m4a';
       await _recorder.start(
         const RecordConfig(
           encoder: AudioEncoder.aacLc,
@@ -172,7 +224,7 @@ class _CallScreenState extends State<CallScreen> {
         ),
         path: path,
       );
-      debugPrint('🎙️ Grabando...');
+      debugPrint('🎙️ Grabando respaldo...');
     } catch (e) {
       debugPrint('Error grabando: $e');
       setState(() => _isTalking = false);
@@ -182,8 +234,14 @@ class _CallScreenState extends State<CallScreen> {
   Future<void> _stopTalking() async {
     if (!_isTalking) return;
     setState(() => _isTalking = false);
+    
+    // 1. Detener TIEMPO REAL
+    await _webRTCService.stopTalking();
+    
+    // 2. Avisar por socket
     _socket.sendPttEnd(widget.channel.id);
 
+    // 3. Detener grabación y enviarla para el historial
     try {
       final path = await _recorder.stop();
       if (path == null) return;
@@ -193,7 +251,7 @@ class _CallScreenState extends State<CallScreen> {
 
       final bytes = await file.readAsBytes();
       final base64Audio = base64Encode(bytes);
-      debugPrint('📤 Enviando audio: ${bytes.length} bytes');
+      debugPrint('📤 Enviando archivo de historial: ${bytes.length} bytes');
       _socket.sendAudio(widget.channel.id, base64Audio);
 
       final msg = MessageModel(
@@ -207,19 +265,18 @@ class _CallScreenState extends State<CallScreen> {
       await _db.saveMessage(msg);
       if (mounted) setState(() => _messages.add(msg));
     } catch (e) {
-      debugPrint('Error enviando: $e');
+      debugPrint('Error enviando respaldo: $e');
     }
   }
 
-  Future<void> _playAudio(dynamic data) async {
+  Future<void> _saveAudioHistory(dynamic data) async {
     try {
       final dir = await getApplicationDocumentsDirectory();
-      final path =
-          '${dir.path}/recv_${DateTime.now().millisecondsSinceEpoch}.m4a';
+      final path = '${dir.path}/recv_${DateTime.now().millisecondsSinceEpoch}.m4a';
       final bytes = base64Decode(data['audioData']);
       await File(path).writeAsBytes(bytes);
-      await _player.play(DeviceFileSource(path));
-      debugPrint('▶️ Reproduciendo de ${data['alias']}');
+      
+      debugPrint('💾 Historial guardado de ${data['alias']}');
 
       final msg = MessageModel(
         id: DateTime.now().millisecondsSinceEpoch.toString(),
@@ -232,7 +289,7 @@ class _CallScreenState extends State<CallScreen> {
       await _db.saveMessage(msg);
       if (mounted) setState(() => _messages.add(msg));
     } catch (e) {
-      debugPrint('Error reproduciendo: $e');
+      debugPrint('Error guardando historial: $e');
     }
   }
 
@@ -262,7 +319,7 @@ class _CallScreenState extends State<CallScreen> {
       }
 
       await _player.play(DeviceFileSource(msg.audioPath));
-      debugPrint('▶️ Reproduciendo mensaje: ${msg.audioPath}');
+      debugPrint('▶️ Reproduciendo historial: ${msg.audioPath}');
 
       _player.onPlayerComplete.listen((_) {
         if (mounted) setState(() => _playingMessages[msg.id] = false);
@@ -275,11 +332,18 @@ class _CallScreenState extends State<CallScreen> {
 
   @override
   void dispose() {
+    _webRTCService.stopTalking(); 
     _socket.leaveChannel(widget.channel.id);
     _socket.removeChannelListeners();
     _recorder.dispose();
     _player.dispose();
     _beepPlayer.dispose();
+    
+    // Detener el servicio en segundo plano al salir de la pantalla
+    if (Platform.isAndroid) {
+      FlutterBackground.disableBackgroundExecution();
+    }
+    
     super.dispose();
   }
 
@@ -405,7 +469,7 @@ class _CallScreenState extends State<CallScreen> {
         ),
         child: Column(children: [
           GestureDetector(
-            onTapDown: (_) => _startTalking(),
+            onTapDown: _whoIsTalking != null ? null : (_) => _startTalking(),
             onTapUp: (_) => _stopTalking(),
             onTapCancel: () => _stopTalking(),
             child: AnimatedContainer(
@@ -416,11 +480,15 @@ class _CallScreenState extends State<CallScreen> {
                 shape: BoxShape.circle,
                 color: _isTalking
                     ? const Color(0xFF00E676)
-                    : const Color(0xFF1C1C1C),
+                    : (_whoIsTalking != null) 
+                        ? const Color(0xFF111111)
+                        : const Color(0xFF1C1C1C),
                 border: Border.all(
                   color: _isTalking
                       ? const Color(0xFF00E676)
-                      : const Color(0xFF333333),
+                      : (_whoIsTalking != null)
+                          ? Colors.red.withOpacity(0.3)
+                          : const Color(0xFF333333),
                   width: 2,
                 ),
                 boxShadow: _isTalking ? [BoxShadow(
@@ -430,21 +498,29 @@ class _CallScreenState extends State<CallScreen> {
                 )] : [],
               ),
               child: Icon(
-                _isTalking ? Icons.mic : Icons.mic_none,
+                _whoIsTalking != null 
+                    ? Icons.lock 
+                    : (_isTalking ? Icons.mic : Icons.mic_none),
                 size: 52,
-                color: _isTalking ? Colors.black : Colors.grey,
+                color: _isTalking 
+                    ? Colors.black 
+                    : (_whoIsTalking != null ? Colors.red.withOpacity(0.5) : Colors.grey),
               ),
             ),
           ),
           const SizedBox(height: 14),
           Text(
-            _isTalking ? '🔴 Grabando...' : 'Mantén para hablar',
+            _isTalking 
+                ? '🔴 Transmitiendo...' 
+                : (_whoIsTalking != null)
+                    ? 'Canal ocupado'
+                    : 'Mantén para hablar',
             style: TextStyle(
-              color: _isTalking ? const Color(0xFF00E676) : Colors.grey,
+              color: _isTalking 
+                  ? const Color(0xFF00E676) 
+                  : (_whoIsTalking != null ? Colors.red.withOpacity(0.8) : Colors.grey),
               fontSize: 14,
-              fontWeight: _isTalking
-                  ? FontWeight.bold
-                  : FontWeight.normal,
+              fontWeight: _isTalking ? FontWeight.bold : FontWeight.normal,
             ),
           ),
         ]),
