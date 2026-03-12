@@ -78,15 +78,22 @@ class WebRTCService {
   Future<void> stopTalking() async {
     if (_currentChannelId == null) return;
     
-    // Cerrar streams y conexiones
+    // Cerrar streams y conexiones locales
     _localStream?.getTracks().forEach((track) => track.stop());
     await _localStream?.dispose();
     _localStream = null;
 
-    for (var pc in _peerConnections.values) {
+    // 1. Hacemos una copia estática de las conexiones actuales
+    final connectionsToClose = _peerConnections.values.toList();
+    
+    // 2. Limpiamos el mapa original inmediatamente para que 
+    // nuevos eventos no interfieran con este proceso
+    _peerConnections.clear();
+
+    // 3. Iteramos de forma 100% segura sobre la copia
+    for (var pc in connectionsToClose) {
       await pc.close();
     }
-    _peerConnections.clear();
   }
 
   Future<void> _handleIncomingOffer(String? remoteUserId, Map<String, dynamic> offerMap) async {

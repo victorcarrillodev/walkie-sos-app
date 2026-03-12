@@ -35,6 +35,8 @@ class _CallScreenState extends State<CallScreen> {
   final AudioRecorder _recorder = AudioRecorder();
   final AudioPlayer _player = AudioPlayer();
   final AudioPlayer _beepPlayer = AudioPlayer();
+  
+  final ScrollController _scrollController = ScrollController();
 
   bool _isTalking = false;
   bool _isConnected = false;
@@ -43,7 +45,11 @@ class _CallScreenState extends State<CallScreen> {
   String? _initError;
   List<MessageModel> _messages = [];
   String? _beepPath;
+  
   final Map<String, bool> _playingMessages = {};
+  
+  final ValueNotifier<Duration> _currentPosition = ValueNotifier(Duration.zero);
+  final ValueNotifier<Duration> _totalDuration = ValueNotifier(Duration.zero);
 
   late String _myUserId;
   late String _myAlias;
@@ -54,18 +60,30 @@ class _CallScreenState extends State<CallScreen> {
     final user = context.read<AuthProvider>().user!;
     _myUserId = user.id;
     _myAlias = user.alias;
+    
+    _player.onPositionChanged.listen((pos) {
+      if (mounted) _currentPosition.value = pos;
+    });
+    _player.onDurationChanged.listen((dur) {
+      if (mounted) _totalDuration.value = dur;
+    });
+    _player.onPlayerComplete.listen((_) {
+      if (mounted) {
+        setState(() => _playingMessages.clear());
+        _currentPosition.value = Duration.zero;
+      }
+    });
+
     _init();
   }
 
   Future<void> _init() async {
     try {
-      // Pedimos múltiples permisos al mismo tiempo: Micrófono y Notificaciones
       Map<Permission, PermissionStatus> statuses = await [
         Permission.microphone,
         Permission.notification,
       ].request();
 
-      // Verificamos si nos dio el permiso del micrófono (es el único estrictamente necesario para hablar)
       if (statuses[Permission.microphone] != PermissionStatus.granted) {
         setState(() {
           _initError = 'Se necesita permiso de micrófono.';
@@ -74,7 +92,6 @@ class _CallScreenState extends State<CallScreen> {
         return;
       }
 
-      // Configurar audio y ejecución en segundo plano
       await _setupBackgroundExecution();
 
       if (!_socket.isConnected) await _socket.connect();
@@ -93,17 +110,14 @@ class _CallScreenState extends State<CallScreen> {
 
   Future<void> _setupBackgroundExecution() async {
     try {
-      // 1. Configurar la sesión de audio para que no se interrumpa
       final session = await AudioSession.instance;
-      // USAR speech() SIN const
       await session.configure(AudioSessionConfiguration.speech());
 
-      // 2. Configurar el servicio en segundo plano (Solo Android)
       if (Platform.isAndroid) {
         final androidConfig = FlutterBackgroundAndroidConfig(
           notificationTitle: "Walkie SOS Activo",
           notificationText: "Escuchando el canal de emergencia...",
-          notificationImportance: AndroidNotificationImportance.normal, // Cambiado a normal
+          notificationImportance: AndroidNotificationImportance.normal,
           notificationIcon: const AndroidResource(name: 'ic_launcher', defType: 'mipmap'),
         );
         
@@ -163,7 +177,6 @@ class _CallScreenState extends State<CallScreen> {
       }
 
       await File(_beepPath!).writeAsBytes(byteData.buffer.asUint8List());
-      debugPrint('✅ Beep generado');
     } catch (e) {
       debugPrint('Error generando beep: $e');
     }
@@ -179,9 +192,22 @@ class _CallScreenState extends State<CallScreen> {
     }
   }
 
+  void _scrollToBottom() {
+    if (_scrollController.hasClients) {
+      _scrollController.animateTo(
+        _scrollController.position.maxScrollExtent,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeOut,
+      );
+    }
+  }
+
   Future<void> _loadMessages() async {
     final msgs = await _db.getMessagesByChannel(widget.channel.id);
-    if (mounted) setState(() => _messages = msgs);
+    if (mounted) {
+      setState(() => _messages = msgs);
+      WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
+    }
   }
 
   void _setupListeners() {
@@ -192,26 +218,20 @@ class _CallScreenState extends State<CallScreen> {
     });
 
     _socket.onReceiveAudio((data) async {
-      debugPrint('📥 Archivo de historial recibido por socket');
       final map = data is List ? data[0] : data;
       await _saveAudioHistory(map); 
     });
   }
 
   Future<void> _startTalking() async {
-    // Evita grabar si ya está hablando alguien más (Half-Duplex)
     if (_isTalking || _whoIsTalking != null) return; 
 
     setState(() => _isTalking = true);
     
-    // 1. Iniciar transmisión en TIEMPO REAL
     await _webRTCService.startTalking();
-    
-    // 2. Avisar por socket y hacer beep
     _socket.sendPttStart(widget.channel.id);
     await _playBeep();
 
-    // 3. Iniciar grabación local para el historial (.m4a)
     try {
       final dir = await getApplicationDocumentsDirectory();
       final path = '${dir.path}/ptt_${DateTime.now().millisecondsSinceEpoch}.m4a';
@@ -224,9 +244,7 @@ class _CallScreenState extends State<CallScreen> {
         ),
         path: path,
       );
-      debugPrint('🎙️ Grabando respaldo...');
     } catch (e) {
-      debugPrint('Error grabando: $e');
       setState(() => _isTalking = false);
     }
   }
@@ -235,13 +253,9 @@ class _CallScreenState extends State<CallScreen> {
     if (!_isTalking) return;
     setState(() => _isTalking = false);
     
-    // 1. Detener TIEMPO REAL
     await _webRTCService.stopTalking();
-    
-    // 2. Avisar por socket
     _socket.sendPttEnd(widget.channel.id);
 
-    // 3. Detener grabación y enviarla para el historial
     try {
       final path = await _recorder.stop();
       if (path == null) return;
@@ -251,7 +265,6 @@ class _CallScreenState extends State<CallScreen> {
 
       final bytes = await file.readAsBytes();
       final base64Audio = base64Encode(bytes);
-      debugPrint('📤 Enviando archivo de historial: ${bytes.length} bytes');
       _socket.sendAudio(widget.channel.id, base64Audio);
 
       final msg = MessageModel(
@@ -263,7 +276,10 @@ class _CallScreenState extends State<CallScreen> {
         createdAt: DateTime.now(),
       );
       await _db.saveMessage(msg);
-      if (mounted) setState(() => _messages.add(msg));
+      if (mounted) {
+        setState(() => _messages.add(msg));
+        WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
+      }
     } catch (e) {
       debugPrint('Error enviando respaldo: $e');
     }
@@ -276,8 +292,6 @@ class _CallScreenState extends State<CallScreen> {
       final bytes = base64Decode(data['audioData']);
       await File(path).writeAsBytes(bytes);
       
-      debugPrint('💾 Historial guardado de ${data['alias']}');
-
       final msg = MessageModel(
         id: DateTime.now().millisecondsSinceEpoch.toString(),
         channelId: widget.channel.id,
@@ -287,7 +301,10 @@ class _CallScreenState extends State<CallScreen> {
         createdAt: DateTime.now(),
       );
       await _db.saveMessage(msg);
-      if (mounted) setState(() => _messages.add(msg));
+      if (mounted) {
+        setState(() => _messages.add(msg));
+        WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
+      }
     } catch (e) {
       debugPrint('Error guardando historial: $e');
     }
@@ -298,34 +315,32 @@ class _CallScreenState extends State<CallScreen> {
 
     if (isPlaying) {
       await _player.stop();
-      if (mounted) setState(() => _playingMessages[msg.id] = false);
+      if (mounted) {
+        setState(() => _playingMessages[msg.id] = false);
+        _currentPosition.value = Duration.zero;
+      }
       return;
     }
 
     await _player.stop();
-    if (mounted) setState(() {
-      for (final key in _playingMessages.keys) {
-        _playingMessages[key] = false;
-      }
-      _playingMessages[msg.id] = true;
-    });
+    if (mounted) {
+      setState(() {
+        _playingMessages.clear();
+        _playingMessages[msg.id] = true;
+      });
+      _currentPosition.value = Duration.zero;
+      _totalDuration.value = Duration.zero;
+    }
 
     try {
       final file = File(msg.audioPath);
       if (!await file.exists()) {
-        debugPrint('❌ Archivo no existe: ${msg.audioPath}');
         if (mounted) setState(() => _playingMessages[msg.id] = false);
         return;
       }
 
       await _player.play(DeviceFileSource(msg.audioPath));
-      debugPrint('▶️ Reproduciendo historial: ${msg.audioPath}');
-
-      _player.onPlayerComplete.listen((_) {
-        if (mounted) setState(() => _playingMessages[msg.id] = false);
-      });
     } catch (e) {
-      debugPrint('Error reproduciendo mensaje: $e');
       if (mounted) setState(() => _playingMessages[msg.id] = false);
     }
   }
@@ -338,8 +353,10 @@ class _CallScreenState extends State<CallScreen> {
     _recorder.dispose();
     _player.dispose();
     _beepPlayer.dispose();
+    _scrollController.dispose();
+    _currentPosition.dispose();
+    _totalDuration.dispose();
     
-    // Detener el servicio en segundo plano al salir de la pantalla
     if (Platform.isAndroid) {
       FlutterBackground.disableBackgroundExecution();
     }
@@ -360,8 +377,7 @@ class _CallScreenState extends State<CallScreen> {
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(widget.channel.name,
-                style: const TextStyle(color: Colors.white, fontSize: 18)),
+            Text(widget.channel.name, style: const TextStyle(color: Colors.white, fontSize: 18)),
             Row(children: [
               Container(
                 width: 8, height: 8,
@@ -372,9 +388,7 @@ class _CallScreenState extends State<CallScreen> {
               ),
               const SizedBox(width: 4),
               Text(
-                _isInitializing
-                    ? 'Conectando...'
-                    : _isConnected ? 'En línea' : 'Sin conexión',
+                _isInitializing ? 'Conectando...' : _isConnected ? 'En línea' : 'Sin conexión',
                 style: TextStyle(
                   color: _isConnected ? const Color(0xFF00E676) : Colors.red,
                   fontSize: 11,
@@ -406,19 +420,15 @@ class _CallScreenState extends State<CallScreen> {
         children: [
           const Icon(Icons.error_outline, color: Colors.red, size: 64),
           const SizedBox(height: 16),
-          Text(_initError!,
-              style: const TextStyle(color: Colors.white),
-              textAlign: TextAlign.center),
+          Text(_initError!, style: const TextStyle(color: Colors.white), textAlign: TextAlign.center),
           const SizedBox(height: 24),
           ElevatedButton(
             onPressed: () {
               setState(() { _initError = null; _isInitializing = true; });
               _init();
             },
-            style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF00E676)),
-            child: const Text('Reintentar',
-                style: TextStyle(color: Colors.black)),
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF00E676)),
+            child: const Text('Reintentar', style: TextStyle(color: Colors.black)),
           ),
         ],
       ));
@@ -431,12 +441,9 @@ class _CallScreenState extends State<CallScreen> {
         color: const Color(0xFF00E676).withOpacity(0.12),
         child: _whoIsTalking != null
             ? Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-                const Icon(Icons.graphic_eq,
-                    color: Color(0xFF00E676), size: 18),
+                const Icon(Icons.graphic_eq, color: Color(0xFF00E676), size: 18),
                 const SizedBox(width: 8),
-                Text('$_whoIsTalking está hablando...',
-                    style: const TextStyle(
-                        color: Color(0xFF00E676), fontSize: 14)),
+                Text('$_whoIsTalking está hablando...', style: const TextStyle(color: Color(0xFF00E676), fontSize: 14)),
               ])
             : null,
       ),
@@ -447,178 +454,293 @@ class _CallScreenState extends State<CallScreen> {
                 children: [
                   Icon(Icons.mic_none, size: 72, color: Colors.grey),
                   SizedBox(height: 12),
-                  Text('Mantén el botón para hablar',
-                      style: TextStyle(color: Colors.grey, fontSize: 16)),
+                  Text('Mantén el botón para hablar', style: TextStyle(color: Colors.grey, fontSize: 16)),
                 ],
               ))
             : ListView.builder(
+                controller: _scrollController, 
                 padding: const EdgeInsets.all(12),
                 itemCount: _messages.length,
-                itemBuilder: (_, i) => _messageTile(_messages[i]),
+                itemBuilder: (_, i) {
+                  final msg = _messages[i];
+                  return MessageBubble(
+                    msg: msg,
+                    isMe: msg.userId == _myUserId,
+                    isPlaying: _playingMessages[msg.id] == true,
+                    onPlayToggle: () => _togglePlayMessage(msg),
+                    currentPositionNotifier: _currentPosition,
+                    totalDurationNotifier: _totalDuration,
+                  );
+                },
               ),
       ),
+      
+      // BOTÓN PTT
       Container(
-        padding: const EdgeInsets.fromLTRB(32, 20, 32, 44),
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
         decoration: BoxDecoration(
           color: const Color(0xFF0F0F0F),
-          boxShadow: [BoxShadow(
-            color: Colors.black.withOpacity(0.4),
-            blurRadius: 12,
-            offset: const Offset(0, -2),
-          )],
+          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.4), blurRadius: 12, offset: const Offset(0, -2))],
         ),
-        child: Column(children: [
-          GestureDetector(
-            onTapDown: _whoIsTalking != null ? null : (_) => _startTalking(),
-            onTapUp: (_) => _stopTalking(),
-            onTapCancel: () => _stopTalking(),
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 150),
-              width: _isTalking ? 130 : 110,
-              height: _isTalking ? 130 : 110,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
+        child: GestureDetector(
+          onTapDown: _whoIsTalking != null ? null : (_) => _startTalking(),
+          onTapUp: (_) => _stopTalking(),
+          onTapCancel: () => _stopTalking(),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 150),
+            width: double.infinity, 
+            height: 72, 
+            decoration: BoxDecoration(
+              color: _isTalking
+                  ? const Color(0xFF00E676)
+                  : (_whoIsTalking != null) 
+                      ? const Color(0xFF111111)
+                      : const Color(0xFF1C1C1C),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(
                 color: _isTalking
                     ? const Color(0xFF00E676)
-                    : (_whoIsTalking != null) 
-                        ? const Color(0xFF111111)
-                        : const Color(0xFF1C1C1C),
-                border: Border.all(
-                  color: _isTalking
-                      ? const Color(0xFF00E676)
-                      : (_whoIsTalking != null)
-                          ? Colors.red.withOpacity(0.3)
-                          : const Color(0xFF333333),
-                  width: 2,
+                    : (_whoIsTalking != null)
+                        ? Colors.red.withOpacity(0.3)
+                        : const Color(0xFF333333),
+                width: 2,
+              ),
+              boxShadow: _isTalking ? [BoxShadow(
+                color: const Color(0xFF00E676).withOpacity(0.45),
+                blurRadius: 20,
+                spreadRadius: 2,
+              )] : [],
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  _whoIsTalking != null 
+                      ? Icons.lock 
+                      : (_isTalking ? Icons.mic : Icons.mic_none),
+                  size: 32,
+                  color: _isTalking 
+                      ? Colors.black 
+                      : (_whoIsTalking != null ? Colors.red.withOpacity(0.5) : Colors.white),
                 ),
-                boxShadow: _isTalking ? [BoxShadow(
-                  color: const Color(0xFF00E676).withOpacity(0.45),
-                  blurRadius: 35,
-                  spreadRadius: 10,
-                )] : [],
-              ),
-              child: Icon(
-                _whoIsTalking != null 
-                    ? Icons.lock 
-                    : (_isTalking ? Icons.mic : Icons.mic_none),
-                size: 52,
-                color: _isTalking 
-                    ? Colors.black 
-                    : (_whoIsTalking != null ? Colors.red.withOpacity(0.5) : Colors.grey),
-              ),
+                const SizedBox(width: 12),
+                Text(
+                  _isTalking 
+                      ? '🔴 Transmitiendo...' 
+                      : (_whoIsTalking != null)
+                          ? 'Canal ocupado'
+                          : 'Mantén para hablar',
+                  style: TextStyle(
+                    color: _isTalking 
+                        ? Colors.black 
+                        : (_whoIsTalking != null ? Colors.red.withOpacity(0.8) : Colors.white),
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
             ),
           ),
-          const SizedBox(height: 14),
-          Text(
-            _isTalking 
-                ? '🔴 Transmitiendo...' 
-                : (_whoIsTalking != null)
-                    ? 'Canal ocupado'
-                    : 'Mantén para hablar',
-            style: TextStyle(
-              color: _isTalking 
-                  ? const Color(0xFF00E676) 
-                  : (_whoIsTalking != null ? Colors.red.withOpacity(0.8) : Colors.grey),
-              fontSize: 14,
-              fontWeight: _isTalking ? FontWeight.bold : FontWeight.normal,
-            ),
-          ),
-        ]),
+        ),
       ),
     ]);
   }
+}
 
-  Widget _messageTile(MessageModel msg) {
-    final isMe = msg.userId == _myUserId;
-    final time =
-        '${msg.createdAt.hour.toString().padLeft(2, '0')}:${msg.createdAt.minute.toString().padLeft(2, '0')}';
-    final isPlaying = _playingMessages[msg.id] == true;
+// =========================================================================
+// NUEVO WIDGET INDEPENDIENTE: Burbuja de Mensaje (Evita crasheos y lagueos)
+// =========================================================================
+class MessageBubble extends StatefulWidget {
+  final MessageModel msg;
+  final bool isMe;
+  final bool isPlaying;
+  final VoidCallback onPlayToggle;
+  final ValueNotifier<Duration> currentPositionNotifier;
+  final ValueNotifier<Duration> totalDurationNotifier;
+
+  const MessageBubble({
+    super.key,
+    required this.msg,
+    required this.isMe,
+    required this.isPlaying,
+    required this.onPlayToggle,
+    required this.currentPositionNotifier,
+    required this.totalDurationNotifier,
+  });
+
+  @override
+  State<MessageBubble> createState() => _MessageBubbleState();
+}
+
+class _MessageBubbleState extends State<MessageBubble> {
+  Duration? _duration;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchDuration();
+  }
+
+  // Analiza la duración del archivo en segundo plano sin saturar la UI
+  Future<void> _fetchDuration() async {
+    try {
+      final file = File(widget.msg.audioPath);
+      if (await file.exists()) {
+        final tempPlayer = AudioPlayer();
+        await tempPlayer.setSourceDeviceFile(widget.msg.audioPath);
+        final dur = await tempPlayer.getDuration();
+        if (mounted && dur != null) {
+          setState(() => _duration = dur);
+        }
+        await tempPlayer.dispose();
+      }
+    } catch (e) {
+      debugPrint('Error leyendo duracion: $e');
+    }
+  }
+
+  // Convierte los milisegundos en formato 0:00
+  String _formatDuration(Duration? d) {
+    if (d == null) return '--:--';
+    final minutes = d.inMinutes;
+    final seconds = (d.inSeconds % 60).toString().padLeft(2, '0');
+    return '$minutes:$seconds';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final time = '${widget.msg.createdAt.hour.toString().padLeft(2, '0')}:${widget.msg.createdAt.minute.toString().padLeft(2, '0')}';
+    final screenWidth = MediaQuery.of(context).size.width;
 
     return Align(
-      alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
+      alignment: widget.isMe ? Alignment.centerRight : Alignment.centerLeft,
       child: Container(
         margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 4),
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        constraints:
-            BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.72),
+        width: screenWidth * 0.75, // Ocupa el 75% de la pantalla
         decoration: BoxDecoration(
-          color: isMe
-              ? const Color(0xFF00E676).withOpacity(0.12)
-              : const Color(0xFF1A1A1A),
+          color: widget.isMe ? const Color(0xFF00E676).withOpacity(0.12) : const Color(0xFF1A1A1A),
           borderRadius: BorderRadius.only(
             topLeft: const Radius.circular(16),
             topRight: const Radius.circular(16),
-            bottomLeft: Radius.circular(isMe ? 16 : 4),
-            bottomRight: Radius.circular(isMe ? 4 : 16),
+            bottomLeft: Radius.circular(widget.isMe ? 16 : 4),
+            bottomRight: Radius.circular(widget.isMe ? 4 : 16),
           ),
           border: Border.all(
-            color: isMe
-                ? const Color(0xFF00E676).withOpacity(0.25)
-                : Colors.transparent,
+            color: widget.isMe ? const Color(0xFF00E676).withOpacity(0.25) : Colors.transparent,
           ),
         ),
-        child: Row(mainAxisSize: MainAxisSize.min, children: [
-          GestureDetector(
-            onTap: () => _togglePlayMessage(msg),
-            child: Container(
-              width: 38,
-              height: 38,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: isMe
-                    ? const Color(0xFF00E676).withOpacity(0.2)
-                    : const Color(0xFF333333),
-              ),
-              child: Icon(
-                isPlaying ? Icons.stop : Icons.play_arrow,
-                size: 20,
-                color: isMe ? const Color(0xFF00E676) : Colors.white,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            GestureDetector(
+              onTap: widget.onPlayToggle,
+              child: Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: widget.isMe ? const Color(0xFF00E676).withOpacity(0.2) : const Color(0xFF333333),
+                ),
+                child: Icon(
+                  widget.isPlaying ? Icons.stop : Icons.play_arrow,
+                  size: 20,
+                  color: widget.isMe ? const Color(0xFF00E676) : Colors.white,
+                ),
               ),
             ),
-          ),
-          const SizedBox(width: 10),
-          Flexible(child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                isMe ? 'Tú' : msg.alias,
-                style: TextStyle(
-                  color: isMe ? const Color(0xFF00E676) : Colors.grey,
-                  fontSize: 11,
-                  fontWeight: FontWeight.bold,
-                ),
+            const SizedBox(width: 10),
+            
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    widget.isMe ? 'Tú' : widget.msg.alias,
+                    style: TextStyle(
+                      color: widget.isMe ? const Color(0xFF00E676) : Colors.grey,
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  
+                  // CONTENEDOR DE LA ONDA AUTO-AJUSTABLE
+                  SizedBox(
+                    height: 28,
+                    width: double.infinity,
+                    child: LayoutBuilder(
+                      builder: (context, constraints) {
+                        final int numBars = (constraints.maxWidth / 5).floor() - 1;
+                        if (numBars <= 0) return const SizedBox();
+
+                        return ValueListenableBuilder<Duration>(
+                          valueListenable: widget.currentPositionNotifier,
+                          builder: (context, currentPos, _) {
+                            final Random random = Random(widget.msg.id.hashCode);
+                            final totalDur = widget.totalDurationNotifier.value;
+                            
+                            double percent = (widget.isPlaying && totalDur.inMilliseconds > 0)
+                                ? currentPos.inMilliseconds / totalDur.inMilliseconds 
+                                : 0.0;
+
+                            return Row(
+                              crossAxisAlignment: CrossAxisAlignment.center,
+                              children: List.generate(numBars, (i) {
+                                double t = numBars > 1 ? i / (numBars - 1) : 0.5;
+                                double envelope = sin(t * pi); 
+                                double randVal = 0.3 + random.nextDouble() * 0.7;
+                                double height = 4.0 + (24.0 * randVal * envelope);
+                                
+                                bool isPlayed = widget.isPlaying && ((i / numBars) <= percent);
+                                
+                                Color baseColor = widget.isMe ? const Color(0xFF00E676) : Colors.white;
+                                Color unplayedColor = widget.isMe ? const Color(0xFF00E676).withOpacity(0.4) : Colors.grey.withOpacity(0.4);
+
+                                return Container(
+                                  margin: const EdgeInsets.symmetric(horizontal: 1.5),
+                                  width: 2,
+                                  height: widget.isPlaying && isPlayed ? height : height * 0.85,
+                                  decoration: BoxDecoration(
+                                    color: isPlayed ? baseColor : unplayedColor,
+                                    borderRadius: BorderRadius.circular(2),
+                                  ),
+                                );
+                              }),
+                            );
+                          },
+                        );
+                      },
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+
+                  // CONTADOR DE TIEMPO Y DURACIÓN TOTAL
+                  ValueListenableBuilder<Duration>(
+                    valueListenable: widget.currentPositionNotifier,
+                    builder: (context, currentPos, _) {
+                      final totalDur = widget.totalDurationNotifier.value;
+                      return Text(
+                        widget.isPlaying
+                            ? '${_formatDuration(currentPos)} / ${_formatDuration(totalDur.inMilliseconds > 0 ? totalDur : _duration)}'
+                            : _formatDuration(_duration),
+                        style: TextStyle(
+                          color: widget.isMe ? const Color(0xFF00E676).withOpacity(0.8) : Colors.grey, 
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      );
+                    },
+                  ),
+                ],
               ),
-              Row(children: [
-                ...List.generate(12, (i) => AnimatedContainer(
-                  duration: Duration(milliseconds: 200 + i * 30),
-                  margin: const EdgeInsets.symmetric(horizontal: 1),
-                  width: 2,
-                  height: isPlaying ? (4.0 + (i % 4) * 5) : 4,
-                  decoration: BoxDecoration(
-                    color: isMe
-                        ? const Color(0xFF00E676)
-                            .withOpacity(isPlaying ? 1 : 0.5)
-                        : Colors.grey.withOpacity(isPlaying ? 1 : 0.5),
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                )),
-                const SizedBox(width: 6),
-                Text(
-                  'Mensaje de voz',
-                  style: TextStyle(
-                    color: isPlaying
-                        ? (isMe ? const Color(0xFF00E676) : Colors.white)
-                        : Colors.grey,
-                    fontSize: 12,
-                  ),
-                ),
-              ]),
-            ],
-          )),
-          const SizedBox(width: 8),
-          Text(time,
-              style: const TextStyle(color: Colors.grey, fontSize: 10)),
-        ]),
+            ),
+            const SizedBox(width: 8),
+            Text(time, style: const TextStyle(color: Colors.grey, fontSize: 10)),
+          ],
+        ),
       ),
     );
   }
