@@ -60,7 +60,9 @@ class WebRTCService {
 
     // 3. Añadir pistas de audio a la conexión
     _localStream!.getTracks().forEach((track) {
-      pc.addTrack(track, _localStream!);
+      if (pc.signalingState != RTCSignalingState.RTCSignalingStateClosed) {
+        pc.addTrack(track, _localStream!);
+      }
     });
 
     // 4. Escuchar candidatos ICE y enviarlos
@@ -69,10 +71,17 @@ class WebRTCService {
     };
 
     // 5. Crear la Oferta y enviarla al servidor
-    RTCSessionDescription offer = await pc.createOffer();
-    await pc.setLocalDescription(offer);
-    
-    _socketService.sendOffer(_currentChannelId!, offer.toMap());
+    if (pc.signalingState != RTCSignalingState.RTCSignalingStateClosed) {
+      try {
+        RTCSessionDescription offer = await pc.createOffer();
+        if (pc.signalingState != RTCSignalingState.RTCSignalingStateClosed) {
+          await pc.setLocalDescription(offer);
+          _socketService.sendOffer(_currentChannelId!, offer.toMap());
+        }
+      } catch (e) {
+        debugPrint('Error al crear/enviar oferta WebRTC: $e');
+      }
+    }
   }
 
   Future<void> stopTalking() async {
@@ -113,19 +122,35 @@ class WebRTCService {
       _socketService.sendIceCandidate(_currentChannelId!, candidate.toMap());
     };
 
-    RTCSessionDescription offer = RTCSessionDescription(offerMap['sdp'], offerMap['type']);
-    await pc.setRemoteDescription(offer);
+    try {
+      RTCSessionDescription offer = RTCSessionDescription(offerMap['sdp'], offerMap['type']);
+      if (pc.signalingState != RTCSignalingState.RTCSignalingStateClosed) {
+        await pc.setRemoteDescription(offer);
+      }
 
-    RTCSessionDescription answer = await pc.createAnswer();
-    await pc.setLocalDescription(answer);
-    _socketService.sendAnswer(_currentChannelId!, answer.toMap());
+      if (pc.signalingState != RTCSignalingState.RTCSignalingStateClosed) {
+        RTCSessionDescription answer = await pc.createAnswer();
+        if (pc.signalingState != RTCSignalingState.RTCSignalingStateClosed) {
+          await pc.setLocalDescription(answer);
+          _socketService.sendAnswer(_currentChannelId!, answer.toMap());
+        }
+      }
+    } catch (e) {
+      debugPrint('Error procesando oferta entrante: $e');
+    }
   }
 
   Future<void> _handleIncomingAnswer(String? remoteUserId, Map<String, dynamic> answerMap) async {
     RTCPeerConnection? pc = _peerConnections['broadcast'];
     if (pc != null) {
-      RTCSessionDescription answer = RTCSessionDescription(answerMap['sdp'], answerMap['type']);
-      await pc.setRemoteDescription(answer);
+      try {
+        RTCSessionDescription answer = RTCSessionDescription(answerMap['sdp'], answerMap['type']);
+        if (pc.signalingState != RTCSignalingState.RTCSignalingStateClosed) {
+          await pc.setRemoteDescription(answer);
+        }
+      } catch (e) {
+        debugPrint('Error procesando respuesta entrante: $e');
+      }
     }
   }
 
@@ -133,12 +158,18 @@ class WebRTCService {
     RTCPeerConnection? pc = remoteUserId != null ? _peerConnections[remoteUserId] : _peerConnections['broadcast'];
     
     if (pc != null) {
-      RTCIceCandidate candidate = RTCIceCandidate(
-        candidateMap['candidate'],
-        candidateMap['sdpMid'],
-        candidateMap['sdpMLineIndex'],
-      );
-      await pc.addCandidate(candidate);
+      try {
+        RTCIceCandidate candidate = RTCIceCandidate(
+          candidateMap['candidate'],
+          candidateMap['sdpMid'],
+          candidateMap['sdpMLineIndex'],
+        );
+        if (pc.signalingState != RTCSignalingState.RTCSignalingStateClosed) {
+          await pc.addCandidate(candidate);
+        }
+      } catch (e) {
+        debugPrint('Error procesando ICE candidate: $e');
+      }
     }
   }
 }

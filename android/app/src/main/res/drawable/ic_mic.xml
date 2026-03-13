@@ -1,0 +1,14 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+  <!-- Solid background circle -->
+  <path
+      android:fillColor="#00E676"
+      android:pathData="M12,12m-12,0a12,12 0,1 1,24 0a12,12 0,1 1,-24 0"/>
+  <!-- Microphone icon inside (scaled down to fit) -->
+  <path
+      android:fillColor="#000000"
+      android:pathData="M12,14.5c1.24,0 2.24,-1.01 2.24,-2.25L14.25,6.25c0,-1.24 -1.01,-2.25 -2.25,-2.25S9.75,5.01 9.75,6.25v6c0,1.24 1.01,2.25 2.25,2.25zM16.12,12.25c0,2.25 -1.9,3.82 -3.97,3.82S8.18,14.5 8.18,12.25H6.9c0,2.56 2.04,4.67 4.5,5.04v2.46h1.5v-2.46c2.46,-0.36 4.5,-2.47 4.5,-5.04h-1.28z"/>
+</vector>

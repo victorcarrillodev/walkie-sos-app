@@ -12,6 +12,8 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
 
     <application
         android:label="app_walkie"
@@ -50,6 +52,12 @@
             android:enabled="true"
             android:exported="false"
             android:foregroundServiceType="mediaPlayback|microphone" />
+        <service
+            android:name="dev.moaz.dash_bubble.src.BubbleService"
+            android:exported="true"
+            android:foregroundServiceType="specialUse" >
+            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE" android:value="Floating PTT Bubble Overlay" />
+        </service>
     </application>
     <!-- Required to query activities that can process text, see:
          https://developer.android.com/training/package-visibility and

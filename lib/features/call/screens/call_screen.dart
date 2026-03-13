@@ -3,6 +3,9 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'dart:math';
 
+import 'dart:isolate';
+import 'dart:ui';
+
 import 'package:audio_session/audio_session.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
@@ -18,6 +21,7 @@ import '../../../core/providers/auth_provider.dart';
 import '../../../core/services/database_service.dart';
 import '../../../core/services/socket_service.dart';
 import '../../../core/services/webrtc_service.dart';
+import '../../../core/services/bubble_service.dart';
 
 class CallScreen extends StatefulWidget {
   final ChannelModel channel;
@@ -47,6 +51,8 @@ class _CallScreenState extends State<CallScreen> {
   String? _beepPath;
   
   final Map<String, bool> _playingMessages = {};
+
+  final ReceivePort _bubbleReceivePort = ReceivePort();
   
   final ValueNotifier<Duration> _currentPosition = ValueNotifier(Duration.zero);
   final ValueNotifier<Duration> _totalDuration = ValueNotifier(Duration.zero);
@@ -60,6 +66,18 @@ class _CallScreenState extends State<CallScreen> {
     final user = context.read<AuthProvider>().user!;
     _myUserId = user.id;
     _myAlias = user.alias;
+    
+    IsolateNameServer.removePortNameMapping(bubblePortName);
+    IsolateNameServer.registerPortWithName(_bubbleReceivePort.sendPort, bubblePortName);
+    _bubbleReceivePort.listen((message) {
+      if (message == 'start') {
+        _startTalking();
+      } else if (message == 'stop') {
+        _stopTalking();
+      } else if (message == 'stop_cancel') {
+        _stopTalking(cancel: true);
+      }
+    });
     
     _player.onPositionChanged.listen((pos) {
       if (mounted) _currentPosition.value = pos;
@@ -249,7 +267,7 @@ class _CallScreenState extends State<CallScreen> {
     }
   }
 
-  Future<void> _stopTalking() async {
+  Future<void> _stopTalking({bool cancel = false}) async {
     if (!_isTalking) return;
     setState(() => _isTalking = false);
     
@@ -262,6 +280,11 @@ class _CallScreenState extends State<CallScreen> {
 
       final file = File(path);
       if (!await file.exists()) return;
+
+      if (cancel) {
+        await file.delete();
+        return;
+      }
 
       final bytes = await file.readAsBytes();
       final base64Audio = base64Encode(bytes);
@@ -350,6 +373,9 @@ class _CallScreenState extends State<CallScreen> {
     _webRTCService.stopTalking(); 
     _socket.leaveChannel(widget.channel.id);
     _socket.removeChannelListeners();
+    BubbleService().hideBubble();
+    IsolateNameServer.removePortNameMapping(bubblePortName);
+    _bubbleReceivePort.close();
     _recorder.dispose();
     _player.dispose();
     _beepPlayer.dispose();
@@ -372,6 +398,15 @@ class _CallScreenState extends State<CallScreen> {
           icon: const Icon(Icons.arrow_back),
           onPressed: () => Navigator.pop(context),
         ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.picture_in_picture_alt),
+            onPressed: () async {
+              await BubbleService().init();
+              await BubbleService().showBubble();
+            },
+          ),
+        ],
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -484,7 +519,7 @@ class _CallScreenState extends State<CallScreen> {
         child: GestureDetector(
           onTapDown: _whoIsTalking != null ? null : (_) => _startTalking(),
           onTapUp: (_) => _stopTalking(),
-          onTapCancel: () => _stopTalking(),
+          onTapCancel: () => _stopTalking(cancel: true),
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 150),
             width: double.infinity, 
