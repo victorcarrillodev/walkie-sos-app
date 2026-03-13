@@ -45,6 +45,7 @@ class BubbleService {
         channelName: 'WalkieSOS Bubble',
       ),
       onTapDown: _onBubbleTapDown,
+      onMove: _onBubbleMove,
       onTapUp: _onBubbleTapUp,
     );
   }
