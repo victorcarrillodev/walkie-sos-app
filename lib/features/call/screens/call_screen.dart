@@ -367,30 +367,28 @@ class _CallScreenState extends State<CallScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF0A0A0A),
       appBar: AppBar(
-        backgroundColor: const Color(0xFF0A0A0A),
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.white),
+          icon: const Icon(Icons.arrow_back),
           onPressed: () => Navigator.pop(context),
         ),
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(widget.channel.name, style: const TextStyle(color: Colors.white, fontSize: 18)),
+            Text(widget.channel.name, style: TextStyle(color: Theme.of(context).colorScheme.primary, fontSize: 22, fontWeight: FontWeight.bold)),
             Row(children: [
               Container(
                 width: 8, height: 8,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  color: _isConnected ? const Color(0xFF00E676) : Colors.red,
+                  color: _isConnected ? Theme.of(context).colorScheme.primary : Colors.red,
                 ),
               ),
               const SizedBox(width: 4),
               Text(
                 _isInitializing ? 'Conectando...' : _isConnected ? 'En línea' : 'Sin conexión',
                 style: TextStyle(
-                  color: _isConnected ? const Color(0xFF00E676) : Colors.red,
+                  color: _isConnected ? Theme.of(context).colorScheme.primary : Colors.red,
                   fontSize: 11,
                 ),
               ),
@@ -403,13 +401,14 @@ class _CallScreenState extends State<CallScreen> {
   }
 
   Widget _buildBody() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     if (_isInitializing) {
-      return const Center(child: Column(
+      return Center(child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          CircularProgressIndicator(color: Color(0xFF00E676)),
-          SizedBox(height: 16),
-          Text('Conectando...', style: TextStyle(color: Colors.grey)),
+          CircularProgressIndicator(color: Theme.of(context).colorScheme.primary),
+          const SizedBox(height: 16),
+          const Text('Conectando...', style: TextStyle(color: Colors.grey)),
         ],
       ));
     }
@@ -420,14 +419,14 @@ class _CallScreenState extends State<CallScreen> {
         children: [
           const Icon(Icons.error_outline, color: Colors.red, size: 64),
           const SizedBox(height: 16),
-          Text(_initError!, style: const TextStyle(color: Colors.white), textAlign: TextAlign.center),
+          Text(_initError!, style: TextStyle(color: isDark ? Colors.white : Colors.black87), textAlign: TextAlign.center),
           const SizedBox(height: 24),
           ElevatedButton(
             onPressed: () {
               setState(() { _initError = null; _isInitializing = true; });
               _init();
             },
-            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF00E676)),
+            style: ElevatedButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.primary),
             child: const Text('Reintentar', style: TextStyle(color: Colors.black)),
           ),
         ],
@@ -438,12 +437,12 @@ class _CallScreenState extends State<CallScreen> {
       AnimatedContainer(
         duration: const Duration(milliseconds: 200),
         height: _whoIsTalking != null ? 44 : 0,
-        color: const Color(0xFF00E676).withOpacity(0.12),
+        color: Theme.of(context).colorScheme.primary.withOpacity(0.12),
         child: _whoIsTalking != null
             ? Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-                const Icon(Icons.graphic_eq, color: Color(0xFF00E676), size: 18),
+                Icon(Icons.graphic_eq, color: Theme.of(context).colorScheme.primary, size: 18),
                 const SizedBox(width: 8),
-                Text('$_whoIsTalking está hablando...', style: const TextStyle(color: Color(0xFF00E676), fontSize: 14)),
+                Text('$_whoIsTalking está hablando...', style: TextStyle(color: Theme.of(context).colorScheme.primary, fontSize: 14)),
               ])
             : null,
       ),
@@ -479,8 +478,8 @@ class _CallScreenState extends State<CallScreen> {
       Container(
         padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
         decoration: BoxDecoration(
-          color: const Color(0xFF0F0F0F),
-          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.4), blurRadius: 12, offset: const Offset(0, -2))],
+          color: isDark ? const Color(0xFF0F0F0F) : Colors.white,
+          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 12, offset: const Offset(0, -2))],
         ),
         child: GestureDetector(
           onTapDown: _whoIsTalking != null ? null : (_) => _startTalking(),
@@ -492,21 +491,21 @@ class _CallScreenState extends State<CallScreen> {
             height: 72, 
             decoration: BoxDecoration(
               color: _isTalking
-                  ? const Color(0xFF00E676)
+                  ? Theme.of(context).colorScheme.primary
                   : (_whoIsTalking != null) 
-                      ? const Color(0xFF111111)
-                      : const Color(0xFF1C1C1C),
+                      ? (isDark ? const Color(0xFF111111) : Colors.grey.shade300)
+                      : (isDark ? const Color(0xFF1C1C1C) : Colors.grey.shade200),
               borderRadius: BorderRadius.circular(20),
               border: Border.all(
                 color: _isTalking
-                    ? const Color(0xFF00E676)
+                    ? Theme.of(context).colorScheme.primary
                     : (_whoIsTalking != null)
                         ? Colors.red.withOpacity(0.3)
-                        : const Color(0xFF333333),
+                        : (isDark ? const Color(0xFF333333) : Colors.grey.shade400),
                 width: 2,
               ),
               boxShadow: _isTalking ? [BoxShadow(
-                color: const Color(0xFF00E676).withOpacity(0.45),
+                color: Theme.of(context).colorScheme.primary.withOpacity(0.45),
                 blurRadius: 20,
                 spreadRadius: 2,
               )] : [],
@@ -521,7 +520,7 @@ class _CallScreenState extends State<CallScreen> {
                   size: 32,
                   color: _isTalking 
                       ? Colors.black 
-                      : (_whoIsTalking != null ? Colors.red.withOpacity(0.5) : Colors.white),
+                      : (_whoIsTalking != null ? Colors.red.withOpacity(0.5) : (isDark ? Colors.white : Colors.black87)),
                 ),
                 const SizedBox(width: 12),
                 Text(
@@ -533,7 +532,7 @@ class _CallScreenState extends State<CallScreen> {
                   style: TextStyle(
                     color: _isTalking 
                         ? Colors.black 
-                        : (_whoIsTalking != null ? Colors.red.withOpacity(0.8) : Colors.white),
+                        : (_whoIsTalking != null ? Colors.red.withOpacity(0.8) : (isDark ? Colors.white : Colors.black87)),
                     fontSize: 16,
                     fontWeight: FontWeight.bold,
                   ),
@@ -611,6 +610,7 @@ class _MessageBubbleState extends State<MessageBubble> {
   Widget build(BuildContext context) {
     final time = '${widget.msg.createdAt.hour.toString().padLeft(2, '0')}:${widget.msg.createdAt.minute.toString().padLeft(2, '0')}';
     final screenWidth = MediaQuery.of(context).size.width;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Align(
       alignment: widget.isMe ? Alignment.centerRight : Alignment.centerLeft,
@@ -619,7 +619,7 @@ class _MessageBubbleState extends State<MessageBubble> {
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
         width: screenWidth * 0.75, // Ocupa el 75% de la pantalla
         decoration: BoxDecoration(
-          color: widget.isMe ? const Color(0xFF00E676).withOpacity(0.12) : const Color(0xFF1A1A1A),
+          color: widget.isMe ? Theme.of(context).colorScheme.primary.withOpacity(0.12) : (isDark ? const Color(0xFF1A1A1A) : Colors.grey.shade200),
           borderRadius: BorderRadius.only(
             topLeft: const Radius.circular(16),
             topRight: const Radius.circular(16),
@@ -627,7 +627,7 @@ class _MessageBubbleState extends State<MessageBubble> {
             bottomRight: Radius.circular(widget.isMe ? 4 : 16),
           ),
           border: Border.all(
-            color: widget.isMe ? const Color(0xFF00E676).withOpacity(0.25) : Colors.transparent,
+            color: widget.isMe ? Theme.of(context).colorScheme.primary.withOpacity(0.25) : Colors.transparent,
           ),
         ),
         child: Row(
@@ -641,12 +641,12 @@ class _MessageBubbleState extends State<MessageBubble> {
                 height: 38,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  color: widget.isMe ? const Color(0xFF00E676).withOpacity(0.2) : const Color(0xFF333333),
+                  color: widget.isMe ? Theme.of(context).colorScheme.primary.withOpacity(0.2) : (isDark ? const Color(0xFF333333) : Colors.grey.shade300),
                 ),
                 child: Icon(
                   widget.isPlaying ? Icons.stop : Icons.play_arrow,
                   size: 20,
-                  color: widget.isMe ? const Color(0xFF00E676) : Colors.white,
+                  color: widget.isMe ? Theme.of(context).colorScheme.primary : (isDark ? Colors.white : Colors.black87),
                 ),
               ),
             ),
@@ -660,7 +660,7 @@ class _MessageBubbleState extends State<MessageBubble> {
                   Text(
                     widget.isMe ? 'Tú' : widget.msg.alias,
                     style: TextStyle(
-                      color: widget.isMe ? const Color(0xFF00E676) : Colors.grey,
+                      color: widget.isMe ? Theme.of(context).colorScheme.primary : Colors.grey,
                       fontSize: 11,
                       fontWeight: FontWeight.bold,
                     ),
@@ -696,8 +696,8 @@ class _MessageBubbleState extends State<MessageBubble> {
                                 
                                 bool isPlayed = widget.isPlaying && ((i / numBars) <= percent);
                                 
-                                Color baseColor = widget.isMe ? const Color(0xFF00E676) : Colors.white;
-                                Color unplayedColor = widget.isMe ? const Color(0xFF00E676).withOpacity(0.4) : Colors.grey.withOpacity(0.4);
+                                Color baseColor = widget.isMe ? Theme.of(context).colorScheme.primary : (isDark ? Colors.white : Colors.black87);
+                                Color unplayedColor = widget.isMe ? Theme.of(context).colorScheme.primary.withOpacity(0.4) : Colors.grey.withOpacity(0.4);
 
                                 return Container(
                                   margin: const EdgeInsets.symmetric(horizontal: 1.5),
@@ -727,7 +727,7 @@ class _MessageBubbleState extends State<MessageBubble> {
                             ? '${_formatDuration(currentPos)} / ${_formatDuration(totalDur.inMilliseconds > 0 ? totalDur : _duration)}'
                             : _formatDuration(_duration),
                         style: TextStyle(
-                          color: widget.isMe ? const Color(0xFF00E676).withOpacity(0.8) : Colors.grey, 
+                          color: widget.isMe ? Theme.of(context).colorScheme.primary.withOpacity(0.8) : Colors.grey, 
                           fontSize: 10,
                           fontWeight: FontWeight.w600,
                         ),

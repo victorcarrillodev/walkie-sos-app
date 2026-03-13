@@ -103,7 +103,7 @@ class _RecentsScreenState extends State<RecentsScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Recientes', style: TextStyle(fontWeight: FontWeight.bold)),
+        title: const Text('Recientes'),
         // BOTÓN DE CONFIGURACIÓN EN LA PARTE SUPERIOR DERECHA
         actions: [
           IconButton(

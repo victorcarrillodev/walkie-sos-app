@@ -40,10 +40,16 @@ class WalkieSosApp extends StatelessWidget {
             theme: ThemeData.light().copyWith(
               colorScheme: ColorScheme.light(primary: themeProvider.primaryColor),
               scaffoldBackgroundColor: const Color(0xFFF5F5F5),
-              appBarTheme: const AppBarTheme(
-                backgroundColor: Color(0xFF0A0A0A),
-                foregroundColor: Colors.white,
+              appBarTheme: AppBarTheme(
+                backgroundColor: Colors.white,
+                foregroundColor: Colors.black,
                 elevation: 0,
+                iconTheme: const IconThemeData(color: Colors.black),
+                titleTextStyle: TextStyle(
+                  color: themeProvider.primaryColor,
+                  fontSize: 22,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
             ),
             
@@ -51,10 +57,16 @@ class WalkieSosApp extends StatelessWidget {
             darkTheme: ThemeData.dark().copyWith(
               colorScheme: ColorScheme.dark(primary: themeProvider.primaryColor),
               scaffoldBackgroundColor: const Color(0xFF0A0A0A),
-              appBarTheme: const AppBarTheme(
-                backgroundColor: Color(0xFF0A0A0A),
+              appBarTheme: AppBarTheme(
+                backgroundColor: const Color(0xFF0A0A0A),
                 foregroundColor: Colors.white,
                 elevation: 0,
+                iconTheme: const IconThemeData(color: Colors.white),
+                titleTextStyle: TextStyle(
+                  color: themeProvider.primaryColor,
+                  fontSize: 22,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
             ),
             home: const AppRoot(),

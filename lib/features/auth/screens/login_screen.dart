@@ -35,9 +35,9 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     final auth = context.watch<AuthProvider>();
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Scaffold(
-      backgroundColor: const Color(0xFF0A0A0A),
       body: SafeArea(
         child: Center(
           child: SingleChildScrollView(
@@ -45,12 +45,12 @@ class _LoginScreenState extends State<LoginScreen> {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                const Icon(Icons.radio, size: 80, color: Color(0xFF00E676)),
+                Icon(Icons.radio, size: 80, color: Theme.of(context).colorScheme.primary),
                 const SizedBox(height: 12),
-                const Text(
+                Text(
                   'WalkieSOS',
                   style: TextStyle(
-                    color: Colors.white,
+                    color: isDark ? Colors.white : Colors.black87,
                     fontSize: 32,
                     fontWeight: FontWeight.bold,
                   ),
@@ -64,15 +64,15 @@ class _LoginScreenState extends State<LoginScreen> {
                 TextField(
                   controller: _emailCtrl,
                   keyboardType: TextInputType.emailAddress,
-                  style: const TextStyle(color: Colors.white),
-                  decoration: _inputDecoration('Email', Icons.email_outlined),
+                  style: TextStyle(color: isDark ? Colors.white : Colors.black87),
+                  decoration: _inputDecoration(context, 'Email', Icons.email_outlined),
                 ),
                 const SizedBox(height: 16),
                 TextField(
                   controller: _passwordCtrl,
                   obscureText: _obscure,
-                  style: const TextStyle(color: Colors.white),
-                  decoration: _inputDecoration('Contraseña', Icons.lock_outline).copyWith(
+                  style: TextStyle(color: isDark ? Colors.white : Colors.black87),
+                  decoration: _inputDecoration(context, 'Contraseña', Icons.lock_outline).copyWith(
                     suffixIcon: IconButton(
                       icon: Icon(
                         _obscure ? Icons.visibility_off : Icons.visibility,
@@ -89,7 +89,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   child: ElevatedButton(
                     onPressed: auth.isLoading ? null : _login,
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF00E676),
+                      backgroundColor: Theme.of(context).colorScheme.primary,
                       foregroundColor: Colors.black,
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12),
@@ -109,9 +109,9 @@ class _LoginScreenState extends State<LoginScreen> {
                     context,
                     MaterialPageRoute(builder: (_) => const RegisterScreen()),
                   ),
-                  child: const Text(
+                  child: Text(
                     '¿No tienes cuenta? Regístrate',
-                    style: TextStyle(color: Color(0xFF00E676)),
+                    style: TextStyle(color: Theme.of(context).colorScheme.primary),
                   ),
                 ),
               ],
@@ -122,20 +122,21 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
-  InputDecoration _inputDecoration(String label, IconData icon) {
+  InputDecoration _inputDecoration(BuildContext context, String label, IconData icon) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return InputDecoration(
       labelText: label,
       labelStyle: const TextStyle(color: Colors.grey),
       prefixIcon: Icon(icon, color: Colors.grey),
       filled: true,
-      fillColor: const Color(0xFF1A1A1A),
+      fillColor: isDark ? const Color(0xFF1A1A1A) : Colors.grey.shade200,
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),
         borderSide: BorderSide.none,
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),
-        borderSide: const BorderSide(color: Color(0xFF00E676)),
+        borderSide: BorderSide(color: Theme.of(context).colorScheme.primary),
       ),
     );
   }

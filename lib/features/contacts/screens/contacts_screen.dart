@@ -28,23 +28,24 @@ class _ContactsScreenState extends State<ContactsScreen> {
 
   void _showAddContactDialog() {
     final aliasCtrl = TextEditingController();
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     showDialog(
       context: context,
       builder: (_) => AlertDialog(
-        backgroundColor: const Color(0xFF1A1A1A),
-        title: const Text('Agregar Contacto',
-            style: TextStyle(color: Colors.white)),
+        backgroundColor: isDark ? const Color(0xFF1A1A1A) : Colors.white,
+        title: Text('Agregar Contacto',
+            style: TextStyle(color: isDark ? Colors.white : Colors.black87)),
         content: TextField(
           controller: aliasCtrl,
           autofocus: true,
-          style: const TextStyle(color: Colors.white),
-          decoration: const InputDecoration(
+          style: TextStyle(color: isDark ? Colors.white : Colors.black87),
+          decoration: InputDecoration(
             labelText: 'Alias del contacto',
-            labelStyle: TextStyle(color: Colors.grey),
-            prefixIcon: Icon(Icons.alternate_email, color: Colors.grey),
+            labelStyle: const TextStyle(color: Colors.grey),
+            prefixIcon: const Icon(Icons.alternate_email, color: Colors.grey),
             filled: true,
-            fillColor: Color(0xFF2A2A2A),
-            border: OutlineInputBorder(borderSide: BorderSide.none),
+            fillColor: isDark ? const Color(0xFF2A2A2A) : Colors.grey.shade200,
+            border: const OutlineInputBorder(borderSide: BorderSide.none),
           ),
         ),
         actions: [
@@ -55,7 +56,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
           ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF00E676)),
+                backgroundColor: Theme.of(context).colorScheme.primary),
             onPressed: () async {
               if (aliasCtrl.text.trim().isEmpty) return;
               Navigator.pop(context);
@@ -68,7 +69,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
                       ? '¡Contacto agregado!'
                       : context.read<ContactProvider>().error ?? 'Error'),
                   backgroundColor:
-                      ok ? const Color(0xFF00E676) : Colors.red,
+                      ok ? Theme.of(context).colorScheme.primary : Colors.red,
                 ));
               }
             },
@@ -129,21 +130,18 @@ class _ContactsScreenState extends State<ContactsScreen> {
     final provider = context.watch<ContactProvider>();
 
     return Scaffold(
-      backgroundColor: const Color(0xFF0A0A0A),
       appBar: AppBar(
-        backgroundColor: const Color(0xFF0A0A0A),
-        title: const Text('Contactos',
-            style: TextStyle(color: Colors.white, fontSize: 20)),
+        title: const Text('Contactos'),
         actions: [
           IconButton(
-            icon: const Icon(Icons.person_add_outlined, color: Color(0xFF00E676)),
+            icon: Icon(Icons.person_add_outlined, color: Theme.of(context).colorScheme.primary),
             onPressed: _showAddContactDialog,
           ),
         ],
       ),
       body: provider.isLoading
-          ? const Center(
-              child: CircularProgressIndicator(color: Color(0xFF00E676)))
+          ? Center(
+              child: CircularProgressIndicator(color: Theme.of(context).colorScheme.primary))
           : provider.contacts.isEmpty
               ? _emptyState()
               : ListView.separated(
@@ -160,7 +158,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
       floatingActionButton: provider.contacts.isNotEmpty
           ? FloatingActionButton(
               onPressed: _showAddContactDialog,
-              backgroundColor: const Color(0xFF00E676),
+              backgroundColor: Theme.of(context).colorScheme.primary,
               child: const Icon(Icons.person_add, color: Colors.black),
             )
           : null,
@@ -169,6 +167,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
 
   Widget _contactTile(ContactModel contact) {
     final isLoading = _loadingContactId == contact.contactId;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return ListTile(
       onTap: isLoading ? null : () => _openDirectCall(contact),
@@ -176,28 +175,28 @@ class _ContactsScreenState extends State<ContactsScreen> {
           const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       leading: CircleAvatar(
         radius: 24,
-        backgroundColor: const Color(0xFF1A1A1A),
+        backgroundColor: isDark ? const Color(0xFF1A1A1A) : Colors.grey.shade300,
         child: Text(
           contact.alias[0].toUpperCase(),
-          style: const TextStyle(
-            color: Color(0xFF00E676),
+          style: TextStyle(
+            color: Theme.of(context).colorScheme.primary,
             fontWeight: FontWeight.bold,
             fontSize: 18,
           ),
         ),
       ),
       title: Text(contact.name,
-          style: const TextStyle(color: Colors.white, fontSize: 15)),
+          style: TextStyle(color: isDark ? Colors.white : Colors.black87, fontSize: 15)),
       subtitle: Text(
         '@${contact.alias}',
         style: const TextStyle(color: Colors.grey, fontSize: 12),
       ),
       trailing: isLoading
-          ? const SizedBox(
+          ? SizedBox(
               width: 24,
               height: 24,
               child: CircularProgressIndicator(
-                color: Color(0xFF00E676),
+                color: Theme.of(context).colorScheme.primary,
                 strokeWidth: 2,
               ),
             )
@@ -205,19 +204,19 @@ class _ContactsScreenState extends State<ContactsScreen> {
               padding:
                   const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
               decoration: BoxDecoration(
-                color: const Color(0xFF00E676).withOpacity(0.1),
+                color: Theme.of(context).colorScheme.primary.withOpacity(0.1),
                 borderRadius: BorderRadius.circular(20),
                 border: Border.all(
-                    color: const Color(0xFF00E676).withOpacity(0.3)),
+                    color: Theme.of(context).colorScheme.primary.withOpacity(0.3)),
               ),
-              child: const Row(
+              child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(Icons.mic, size: 14, color: Color(0xFF00E676)),
-                  SizedBox(width: 4),
+                  Icon(Icons.mic, size: 14, color: Theme.of(context).colorScheme.primary),
+                  const SizedBox(width: 4),
                   Text('Hablar',
                       style: TextStyle(
-                          color: Color(0xFF00E676), fontSize: 12)),
+                          color: Theme.of(context).colorScheme.primary, fontSize: 12)),
                 ],
               ),
             ),
@@ -225,14 +224,16 @@ class _ContactsScreenState extends State<ContactsScreen> {
   }
 
   Widget _emptyState() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           const Icon(Icons.people_outline, size: 72, color: Colors.grey),
           const SizedBox(height: 16),
-          const Text('No tienes contactos aún',
-              style: TextStyle(color: Colors.white, fontSize: 18)),
+          Text('No tienes contactos aún',
+              style: TextStyle(color: isDark ? Colors.white : Colors.black87, fontSize: 18)),
           const SizedBox(height: 6),
           const Text('Agrega a alguien por su alias',
               style: TextStyle(color: Colors.grey, fontSize: 13)),
@@ -240,7 +241,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
           ElevatedButton.icon(
             onPressed: _showAddContactDialog,
             style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF00E676),
+              backgroundColor: Theme.of(context).colorScheme.primary,
               padding:
                   const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
             ),

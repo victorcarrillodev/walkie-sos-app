@@ -35,17 +35,18 @@ class _ChannelsScreenState extends State<ChannelsScreen>
   void _showCreateDialog() {
     final nameCtrl = TextEditingController();
     final descCtrl = TextEditingController();
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     showDialog(
       context: context,
       builder: (_) => AlertDialog(
-        backgroundColor: const Color(0xFF1A1A1A),
-        title: const Text('Nuevo Canal', style: TextStyle(color: Colors.white)),
+        backgroundColor: isDark ? const Color(0xFF1A1A1A) : Colors.white,
+        title: Text('Nuevo Canal', style: TextStyle(color: isDark ? Colors.white : Colors.black87)),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             TextField(
               controller: nameCtrl,
-              style: const TextStyle(color: Colors.white),
+              style: TextStyle(color: isDark ? Colors.white : Colors.black87),
               decoration: const InputDecoration(
                 labelText: 'Nombre del canal',
                 labelStyle: TextStyle(color: Colors.grey),
@@ -53,7 +54,7 @@ class _ChannelsScreenState extends State<ChannelsScreen>
             ),
             TextField(
               controller: descCtrl,
-              style: const TextStyle(color: Colors.white),
+              style: TextStyle(color: isDark ? Colors.white : Colors.black87),
               decoration: const InputDecoration(
                 labelText: 'Descripción (opcional)',
                 labelStyle: TextStyle(color: Colors.grey),
@@ -67,7 +68,7 @@ class _ChannelsScreenState extends State<ChannelsScreen>
             child: const Text('Cancelar', style: TextStyle(color: Colors.grey)),
           ),
           ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF00E676)),
+            style: ElevatedButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.primary),
             onPressed: () async {
               if (nameCtrl.text.trim().isEmpty) return;
               Navigator.pop(context);
@@ -85,14 +86,15 @@ class _ChannelsScreenState extends State<ChannelsScreen>
 
   void _showJoinDialog() {
     final nameCtrl = TextEditingController();
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     showDialog(
       context: context,
       builder: (_) => AlertDialog(
-        backgroundColor: const Color(0xFF1A1A1A),
-        title: const Text('Unirse a Canal', style: TextStyle(color: Colors.white)),
+        backgroundColor: isDark ? const Color(0xFF1A1A1A) : Colors.white,
+        title: Text('Unirse a Canal', style: TextStyle(color: isDark ? Colors.white : Colors.black87)),
         content: TextField(
           controller: nameCtrl,
-          style: const TextStyle(color: Colors.white),
+          style: TextStyle(color: isDark ? Colors.white : Colors.black87),
           decoration: const InputDecoration(
             labelText: 'Nombre exacto del canal',
             labelStyle: TextStyle(color: Colors.grey),
@@ -104,7 +106,7 @@ class _ChannelsScreenState extends State<ChannelsScreen>
             child: const Text('Cancelar', style: TextStyle(color: Colors.grey)),
           ),
           ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF00E676)),
+            style: ElevatedButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.primary),
             onPressed: () async {
               if (nameCtrl.text.trim().isEmpty) return;
               Navigator.pop(context);
@@ -137,16 +139,14 @@ class _ChannelsScreenState extends State<ChannelsScreen>
     final channels = context.watch<ChannelProvider>();
 
     return Scaffold(
-      backgroundColor: const Color(0xFF0A0A0A),
       appBar: AppBar(
-        backgroundColor: const Color(0xFF0A0A0A),
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('WalkieSOS', style: TextStyle(color: Colors.white, fontSize: 20)),
+            Text('WalkieSOS', style: TextStyle(color: Theme.of(context).colorScheme.primary, fontSize: 22, fontWeight: FontWeight.bold)),
             Text(
               '@${auth.user?.alias ?? ''}',
-              style: const TextStyle(color: Color(0xFF00E676), fontSize: 12),
+              style: TextStyle(color: Theme.of(context).colorScheme.primary, fontSize: 12),
             ),
           ],
         ),
@@ -158,8 +158,8 @@ class _ChannelsScreenState extends State<ChannelsScreen>
         ],
         bottom: TabBar(
           controller: _tabController,
-          indicatorColor: const Color(0xFF00E676),
-          labelColor: const Color(0xFF00E676),
+          indicatorColor: Theme.of(context).colorScheme.primary,
+          labelColor: Theme.of(context).colorScheme.primary,
           unselectedLabelColor: Colors.grey,
           tabs: const [
             Tab(text: 'Mis Canales'),
@@ -172,7 +172,7 @@ class _ChannelsScreenState extends State<ChannelsScreen>
         children: [
           // TAB 1: MIS CANALES
           channels.isLoading
-              ? const Center(child: CircularProgressIndicator(color: Color(0xFF00E676)))
+              ? Center(child: CircularProgressIndicator(color: Theme.of(context).colorScheme.primary))
               : channels.myChannels.isEmpty
                   ? _emptyState('No tienes canales aún', 'Crea uno o únete a uno existente')
                   : ListView.builder(
@@ -182,7 +182,7 @@ class _ChannelsScreenState extends State<ChannelsScreen>
 
           // TAB 2: EXPLORAR
           channels.isLoading
-              ? const Center(child: CircularProgressIndicator(color: Color(0xFF00E676)))
+              ? Center(child: CircularProgressIndicator(color: Theme.of(context).colorScheme.primary))
               : channels.publicChannels.isEmpty
                   ? _emptyState('No hay canales públicos', 'Sé el primero en crear uno')
                   : ListView.builder(
@@ -204,7 +204,7 @@ class _ChannelsScreenState extends State<ChannelsScreen>
           FloatingActionButton(
             heroTag: 'create',
             onPressed: _showCreateDialog,
-            backgroundColor: const Color(0xFF00E676),
+            backgroundColor: Theme.of(context).colorScheme.primary,
             child: const Icon(Icons.add, color: Colors.black),
           ),
         ],
@@ -213,16 +213,17 @@ class _ChannelsScreenState extends State<ChannelsScreen>
   }
 
   Widget _channelTile(ChannelModel channel) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return ListTile(
       onTap: () => _openChannel(channel),
       leading: CircleAvatar(
-        backgroundColor: const Color(0xFF1A1A1A),
+        backgroundColor: isDark ? const Color(0xFF1A1A1A) : Colors.grey.shade300,
         child: Icon(
           channel.isPrivate ? Icons.lock : Icons.radio,
-          color: const Color(0xFF00E676),
+          color: Theme.of(context).colorScheme.primary,
         ),
       ),
-      title: Text(channel.name, style: const TextStyle(color: Colors.white)),
+      title: Text(channel.name, style: TextStyle(color: isDark ? Colors.white : Colors.black87)),
       subtitle: Text(
         channel.description ?? 'Sin descripción',
         style: const TextStyle(color: Colors.grey, fontSize: 12),
@@ -237,13 +238,14 @@ class _ChannelsScreenState extends State<ChannelsScreen>
   }
 
   Widget _emptyState(String title, String subtitle) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           const Icon(Icons.radio, size: 64, color: Colors.grey),
           const SizedBox(height: 12),
-          Text(title, style: const TextStyle(color: Colors.white, fontSize: 18)),
+          Text(title, style: TextStyle(color: isDark ? Colors.white : Colors.black87, fontSize: 18)),
           const SizedBox(height: 4),
           Text(subtitle, style: const TextStyle(color: Colors.grey, fontSize: 13)),
         ],
