@@ -1,11 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+
 import 'core/providers/auth_provider.dart';
 import 'core/providers/channel_provider.dart';
 import 'core/providers/contact_provider.dart';
+import 'core/providers/theme_provider.dart'; // <-- IMPORTADO
+
 import 'features/auth/screens/login_screen.dart';
 import 'features/channels/screens/channels_screen.dart';
 import 'features/contacts/screens/contacts_screen.dart';
+import 'features/recents/screens/recents_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -22,14 +26,40 @@ class WalkieSosApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => AuthProvider()),
         ChangeNotifierProvider(create: (_) => ChannelProvider()),
         ChangeNotifierProvider(create: (_) => ContactProvider()),
+        ChangeNotifierProvider(create: (_) => ThemeProvider()), // <-- REGISTRADO
       ],
-      child: MaterialApp(
-        title: 'WalkieSOS',
-        debugShowCheckedModeBanner: false,
-        theme: ThemeData.dark().copyWith(
-          colorScheme: const ColorScheme.dark(primary: Color(0xFF00E676)),
-        ),
-        home: const AppRoot(),
+      child: Consumer<ThemeProvider>(
+        builder: (context, themeProvider, _) {
+          return MaterialApp(
+            title: 'WalkieSOS',
+            debugShowCheckedModeBanner: false,
+            // Aplicamos el modo seleccionado (Claro/Oscuro/Sistema)
+            themeMode: themeProvider.themeMode, 
+            
+            // CONFIGURACIÓN TEMA CLARO
+            theme: ThemeData.light().copyWith(
+              colorScheme: ColorScheme.light(primary: themeProvider.primaryColor),
+              scaffoldBackgroundColor: const Color(0xFFF5F5F5),
+              appBarTheme: const AppBarTheme(
+                backgroundColor: Color(0xFF0A0A0A),
+                foregroundColor: Colors.white,
+                elevation: 0,
+              ),
+            ),
+            
+            // CONFIGURACIÓN TEMA OSCURO
+            darkTheme: ThemeData.dark().copyWith(
+              colorScheme: ColorScheme.dark(primary: themeProvider.primaryColor),
+              scaffoldBackgroundColor: const Color(0xFF0A0A0A),
+              appBarTheme: const AppBarTheme(
+                backgroundColor: Color(0xFF0A0A0A),
+                foregroundColor: Colors.white,
+                elevation: 0,
+              ),
+            ),
+            home: const AppRoot(),
+          );
+        }
       ),
     );
   }
@@ -59,9 +89,12 @@ class _AppRootState extends State<AppRoot> {
   @override
   Widget build(BuildContext context) {
     if (!_checked) {
-      return const Scaffold(
-        backgroundColor: Color(0xFF0A0A0A),
-        body: Center(child: CircularProgressIndicator(color: Color(0xFF00E676))),
+      return Scaffold(
+        body: Center(
+          child: CircularProgressIndicator(
+            color: Theme.of(context).colorScheme.primary, // Color dinámico
+          ),
+        ),
       );
     }
     final isLoggedIn = context.watch<AuthProvider>().isLoggedIn;
@@ -77,27 +110,43 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  int _currentIndex = 0;
+  int _currentIndex = 0; 
 
   final List<Widget> _screens = const [
-    ChannelsScreen(),
+    RecentsScreen(),
     ContactsScreen(),
+    ChannelsScreen(),
   ];
 
   @override
   Widget build(BuildContext context) {
+    // Detectamos si el fondo general debe ser oscuro o claro
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final primaryColor = Theme.of(context).colorScheme.primary;
+
     return Scaffold(
-      body: _screens[_currentIndex],
-      bottomNavigationBar: BottomNavigationBar(
-        backgroundColor: const Color(0xFF0A0A0A),
-        selectedItemColor: const Color(0xFF00E676),
-        unselectedItemColor: Colors.grey,
-        currentIndex: _currentIndex,
-        onTap: (i) => setState(() => _currentIndex = i),
-        items: const [
-          BottomNavigationBarItem(icon: Icon(Icons.radio), label: 'Canales'),
-          BottomNavigationBarItem(icon: Icon(Icons.people), label: 'Contactos'),
-        ],
+      body: IndexedStack(
+        index: _currentIndex,
+        children: _screens,
+      ),
+      bottomNavigationBar: Container(
+        decoration: BoxDecoration(
+          border: Border(top: BorderSide(color: Colors.grey.withOpacity(0.2), width: 0.5)),
+        ),
+        child: BottomNavigationBar(
+          // Se adapta al modo claro y oscuro
+          backgroundColor: isDark ? const Color(0xFF0F0F0F) : Colors.white,
+          selectedItemColor: primaryColor,
+          unselectedItemColor: Colors.grey,
+          currentIndex: _currentIndex,
+          type: BottomNavigationBarType.fixed, 
+          onTap: (i) => setState(() => _currentIndex = i),
+          items: const [
+            BottomNavigationBarItem(icon: Icon(Icons.history), label: 'Recientes'),
+            BottomNavigationBarItem(icon: Icon(Icons.people), label: 'Contactos'),
+            BottomNavigationBarItem(icon: Icon(Icons.radio), label: 'Canales'),
+          ],
+        ),
       ),
     );
   }
