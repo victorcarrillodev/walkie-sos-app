@@ -5,9 +5,10 @@ import '../../../core/models/channel_model.dart';
 import '../../../core/models/message_model.dart';
 import '../../../core/providers/auth_provider.dart';
 import '../../../core/providers/channel_provider.dart';
+import '../../../core/providers/presence_provider.dart';
 import '../../../core/services/database_service.dart';
 import '../../call/screens/call_screen.dart';
-import '../../settings/screens/settings_screen.dart'; // <-- IMPORTADO
+import '../../settings/screens/settings_screen.dart';
 
 class RecentsScreen extends StatefulWidget {
   const RecentsScreen({super.key});
@@ -77,6 +78,25 @@ class _RecentsScreenState extends State<RecentsScreen> {
           _recentItems = temp;
           _isLoading = false;
         });
+
+        // Solicitamos el estado en línea de los usuarios de canales directos
+        final myUserId = context.read<AuthProvider>().user?.id ?? '';
+        final directIds = temp
+            .map((item) {
+              final ch = item['channel'] as ChannelModel;
+              if (!ch.name.startsWith('direct_')) return null;
+              final parts = ch.name.split('_');
+              if (parts.length >= 3) {
+                return parts[1] == myUserId ? parts[2] : parts[1];
+              }
+              return null;
+            })
+            .whereType<String>()
+            .toSet()
+            .toList();
+        if (directIds.isNotEmpty) {
+          context.read<PresenceProvider>().checkPresence(directIds);
+        }
       }
     } catch (e) {
       debugPrint('Error cargando recientes: $e');
@@ -151,15 +171,49 @@ class _RecentsScreenState extends State<RecentsScreen> {
                       final String displayTitle = item['displayTitle']; 
                       final isMe = lastMsg.userId == currentUser?.id;
 
+                      // Calcular online status si es canal directo
+                      String? directTargetId;
+                      if (channel.name.startsWith('direct_')) {
+                        final myId = currentUser?.id ?? '';
+                        final parts = channel.name.split('_');
+                        if (parts.length >= 3) {
+                          directTargetId = parts[1] == myId ? parts[2] : parts[1];
+                        }
+                      }
+                      final isOnline = directTargetId != null
+                          ? context.watch<PresenceProvider>().isOnline(directTargetId)
+                          : false;
+
                       return ListTile(
                         contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                        leading: CircleAvatar(
-                          radius: 26,
-                          backgroundColor: isDark ? const Color(0xFF1A1A1A) : Colors.grey.shade300,
-                          child: Text(
-                            displayTitle.isNotEmpty ? displayTitle[0].toUpperCase() : '?',
-                            style: TextStyle(color: primaryColor, fontWeight: FontWeight.bold, fontSize: 22),
-                          ),
+                        leading: Stack(
+                          children: [
+                            CircleAvatar(
+                              radius: 26,
+                              backgroundColor: isDark ? const Color(0xFF1A1A1A) : Colors.grey.shade300,
+                              child: Text(
+                                displayTitle.isNotEmpty ? displayTitle[0].toUpperCase() : '?',
+                                style: TextStyle(color: primaryColor, fontWeight: FontWeight.bold, fontSize: 22),
+                              ),
+                            ),
+                            if (directTargetId != null)
+                              Positioned(
+                                bottom: 0,
+                                right: 0,
+                                child: Container(
+                                  width: 13,
+                                  height: 13,
+                                  decoration: BoxDecoration(
+                                    color: isOnline ? Colors.green : Colors.grey,
+                                    shape: BoxShape.circle,
+                                    border: Border.all(
+                                      color: isDark ? const Color(0xFF0A0A0A) : Colors.white,
+                                      width: 2,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                          ],
                         ),
                         title: Text(
                           displayTitle, 

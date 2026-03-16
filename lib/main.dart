@@ -4,7 +4,8 @@ import 'package:provider/provider.dart';
 import 'core/providers/auth_provider.dart';
 import 'core/providers/channel_provider.dart';
 import 'core/providers/contact_provider.dart';
-import 'core/providers/theme_provider.dart'; // <-- IMPORTADO
+import 'core/providers/theme_provider.dart';
+import 'core/providers/presence_provider.dart';
 
 import 'features/auth/screens/login_screen.dart';
 import 'features/channels/screens/channels_screen.dart';
@@ -26,7 +27,12 @@ class WalkieSosApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => AuthProvider()),
         ChangeNotifierProvider(create: (_) => ChannelProvider()),
         ChangeNotifierProvider(create: (_) => ContactProvider()),
-        ChangeNotifierProvider(create: (_) => ThemeProvider()), // <-- REGISTRADO
+        ChangeNotifierProvider(create: (_) => ThemeProvider()),
+        ChangeNotifierProvider(create: (_) {
+          final p = PresenceProvider();
+          p.startListening();
+          return p;
+        }),
       ],
       child: Consumer<ThemeProvider>(
         builder: (context, themeProvider, _) {

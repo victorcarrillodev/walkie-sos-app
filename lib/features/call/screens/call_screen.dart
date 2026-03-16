@@ -18,6 +18,7 @@ import 'package:record/record.dart';
 import '../../../core/models/channel_model.dart';
 import '../../../core/models/message_model.dart';
 import '../../../core/providers/auth_provider.dart';
+import '../../../core/providers/presence_provider.dart';
 import '../../../core/services/database_service.dart';
 import '../../../core/services/socket_service.dart';
 import '../../../core/services/webrtc_service.dart';
@@ -25,7 +26,10 @@ import '../../../core/services/bubble_service.dart';
 
 class CallScreen extends StatefulWidget {
   final ChannelModel channel;
-  const CallScreen({super.key, required this.channel});
+  /// El userId del otro usuario en un chat directo (1-a-1).
+  /// Si se provee, habilita el indicador de presencia sin parsear el nombre del canal.
+  final String? targetUserId;
+  const CallScreen({super.key, required this.channel, this.targetUserId});
 
   @override
   State<CallScreen> createState() => _CallScreenState();
@@ -60,6 +64,10 @@ class _CallScreenState extends State<CallScreen> {
   late String _myUserId;
   late String _myAlias;
 
+  // Variables para canal directo (sin estado de online — lo lee PresenceProvider)
+  bool _isDirectChannel = false;
+  String? _targetUserId;
+
   @override
   void initState() {
     super.initState();
@@ -92,6 +100,20 @@ class _CallScreenState extends State<CallScreen> {
       }
     });
 
+    // Detectar canal directo:
+    // 1. Si se pasa targetUserId directamente (desde ContactsScreen), usarlo.
+    // 2. Si no, intentar parsear el nombre del canal como fallback.
+    if (widget.targetUserId != null) {
+      _isDirectChannel = true;
+      _targetUserId = widget.targetUserId;
+    } else if (widget.channel.name.startsWith('direct_')) {
+      _isDirectChannel = true;
+      final parts = widget.channel.name.split('_');
+      if (parts.length >= 3) {
+        _targetUserId = (parts[1] == _myUserId) ? parts[2] : parts[1];
+      }
+    }
+
     _init();
   }
 
@@ -119,6 +141,10 @@ class _CallScreenState extends State<CallScreen> {
       await _loadMessages();
       await _generateBeep();
       _setupListeners();
+      
+      if (_isDirectChannel && _targetUserId != null) {
+        context.read<PresenceProvider>().checkSinglePresence(_targetUserId!);
+      }
 
       if (mounted) setState(() { _isConnected = true; _isInitializing = false; });
     } catch (e) {
@@ -133,7 +159,7 @@ class _CallScreenState extends State<CallScreen> {
 
       if (Platform.isAndroid) {
         final androidConfig = FlutterBackgroundAndroidConfig(
-          notificationTitle: "Walkie SOS Activo",
+          notificationTitle: "Walkie SOS: ${widget.channel.name}",
           notificationText: "Escuchando el canal de emergencia...",
           notificationImportance: AndroidNotificationImportance.normal,
           notificationIcon: const AndroidResource(name: 'ic_launcher', defType: 'mipmap'),
@@ -403,31 +429,69 @@ class _CallScreenState extends State<CallScreen> {
             icon: const Icon(Icons.picture_in_picture_alt),
             onPressed: () async {
               await BubbleService().init();
-              await BubbleService().showBubble();
+              await BubbleService().showBubble(chatName: widget.channel.name);
             },
           ),
         ],
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(widget.channel.name, style: TextStyle(color: Theme.of(context).colorScheme.primary, fontSize: 22, fontWeight: FontWeight.bold)),
-            Row(children: [
-              Container(
-                width: 8, height: 8,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: _isConnected ? Theme.of(context).colorScheme.primary : Colors.red,
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    widget.channel.name,
+                    style: TextStyle(
+                        color: Theme.of(context).colorScheme.primary,
+                        fontSize: 22,
+                        fontWeight: FontWeight.bold),
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ),
-              ),
-              const SizedBox(width: 4),
-              Text(
-                _isInitializing ? 'Conectando...' : _isConnected ? 'En línea' : 'Sin conexión',
-                style: TextStyle(
-                  color: _isConnected ? Theme.of(context).colorScheme.primary : Colors.red,
-                  fontSize: 11,
+              ],
+            ),
+            // Para canales directos: muestra si EL OTRO usuario está conectado.
+            // Para canales grupales: muestra el estado de nuestra propia conexión.
+            if (_isDirectChannel && _targetUserId != null)
+              Builder(builder: (ctx) {
+                final targetOnline = ctx.watch<PresenceProvider>().isOnline(_targetUserId!);
+                return Row(children: [
+                  Container(
+                    width: 8, height: 8,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: targetOnline ? Colors.green : Colors.grey,
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    _isInitializing ? 'Verificando...' : (targetOnline ? 'En línea' : 'Desconectado'),
+                    style: TextStyle(
+                      color: targetOnline ? Colors.green : Colors.grey,
+                      fontSize: 11,
+                    ),
+                  ),
+                ]);
+              })
+            else
+              Row(children: [
+                Container(
+                  width: 8, height: 8,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: _isConnected ? Theme.of(context).colorScheme.primary : Colors.red,
+                  ),
                 ),
-              ),
-            ]),
+                const SizedBox(width: 4),
+                Text(
+                  _isInitializing ? 'Conectando...' : (_isConnected ? 'Canal activo' : 'Sin conexión'),
+                  style: TextStyle(
+                    color: _isConnected ? Theme.of(context).colorScheme.primary : Colors.red,
+                    fontSize: 11,
+                  ),
+                ),
+              ]),
+
           ],
         ),
       ),

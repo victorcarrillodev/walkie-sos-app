@@ -91,6 +91,14 @@ class SocketService {
     _socket?.emit('send-audio', {'channelId': channelId, 'audioData': audioData});
   }
 
+  void checkOnlineStatus(String userId) {
+    _socket?.emit('check-online-status', userId);
+  }
+
+  void checkUsersStatus(List<String> userIds) {
+    _socket?.emit('check-users-status', userIds);
+  }
+
   // LISTENERS - limpia antes de agregar para evitar duplicados
   void onReceiveOffer(Function(dynamic) callback) {
     _socket?.off('webrtc-offer');
@@ -122,6 +130,21 @@ class SocketService {
     _socket?.on('channel-event', callback);
   }
 
+  void onOnlineStatus(Function(dynamic) callback) {
+    _socket?.off('online-status');
+    _socket?.on('online-status', callback);
+  }
+
+  void onUserStatusChanged(Function(dynamic) callback) {
+    _socket?.off('user-status-changed');
+    _socket?.on('user-status-changed', callback);
+  }
+
+  void onUsersStatus(Function(dynamic) callback) {
+    _socket?.off('users-status');
+    _socket?.on('users-status', callback);
+  }
+
   void removeChannelListeners() {
     _socket?.off('webrtc-offer');
     _socket?.off('webrtc-answer');
@@ -129,6 +152,9 @@ class SocketService {
     _socket?.off('ptt-status');
     _socket?.off('receive-audio');
     _socket?.off('channel-event');
+    _socket?.off('online-status');
+    _socket?.off('user-status-changed');
+    _socket?.off('users-status');
   }
 
   // Solo desconectar al hacer logout, NO al salir de un canal

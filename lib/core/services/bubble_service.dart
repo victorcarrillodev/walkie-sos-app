@@ -14,7 +14,7 @@ class BubbleService {
     await DashBubble.instance.requestPostNotificationsPermission();
   }
 
-  Future<void> showBubble() async {
+  Future<void> showBubble({String? chatName}) async {
     final hasOverlay = await DashBubble.instance.hasOverlayPermission();
     if (!hasOverlay) {
       await DashBubble.instance.requestOverlayPermission();
@@ -39,7 +39,7 @@ class BubbleService {
       ),
       notificationOptions: NotificationOptions(
         id: 99,
-        title: 'WalkieSOS',
+        title: chatName != null ? 'WalkieSOS - $chatName' : 'WalkieSOS',
         body: 'Botón de emergencias (PTT) activo',
         channelId: 'walkiesos_bubble',
         channelName: 'WalkieSOS Bubble',
@@ -67,15 +67,19 @@ Timer? _bubblePressTimer;
 double _startX = 0;
 double _startY = 0;
 
+// Variables para la mantención del estado
+bool _isPermanentRecording = false;
+
 @pragma('vm:entry-point')
 void _onBubbleTapDown(double x, double y) {
   _isBubbleDragging = false;
   _startX = x;
   _startY = y;
   
-  // Esperar 200ms para asegurar que es un toque y no el inicio de un arrastre
+  _bubblePressTimer?.cancel();
   _bubblePressTimer = Timer(const Duration(milliseconds: 200), () {
-    if (!_isBubbleDragging) {
+    // Si no se está arrastrando y no está en modo permanente, se inicia PTT por hold
+    if (!_isBubbleDragging && !_isPermanentRecording) {
       final sendPort = IsolateNameServer.lookupPortByName(bubblePortName);
       sendPort?.send('start');
     }
@@ -98,10 +102,33 @@ void _onBubbleMove(double x, double y) {
 
 @pragma('vm:entry-point')
 void _onBubbleTapUp(double x, double y) {
-  _bubblePressTimer?.cancel();
-  if (!_isBubbleDragging) {
-    final sendPort = IsolateNameServer.lookupPortByName(bubblePortName);
-    sendPort?.send('stop');
+  bool isShortTap = false;
+  
+  // Si el timer sigue activo, significa que soltó antes de 200ms (un toque rápido)
+  if (_bubblePressTimer != null && _bubblePressTimer!.isActive) {
+    isShortTap = true;
   }
+  _bubblePressTimer?.cancel();
+  
+  if (!_isBubbleDragging) {
+    if (isShortTap) {
+      // Toque corto: alternar modo grabación permanente
+      final sendPort = IsolateNameServer.lookupPortByName(bubblePortName);
+      if (_isPermanentRecording) {
+        _isPermanentRecording = false;
+        sendPort?.send('stop'); 
+      } else {
+        _isPermanentRecording = true;
+        sendPort?.send('start');
+      }
+    } else {
+      // Toque largo: detener solo si no estaba en modo permanente
+      if (!_isPermanentRecording) {
+        final sendPort = IsolateNameServer.lookupPortByName(bubblePortName);
+        sendPort?.send('stop');
+      }
+    }
+  }
+
   _isBubbleDragging = false;
 }

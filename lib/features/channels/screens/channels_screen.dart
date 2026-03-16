@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../core/providers/auth_provider.dart';
 import '../../../core/providers/channel_provider.dart';
+import '../../../core/providers/presence_provider.dart';
 import '../../../core/models/channel_model.dart';
 import '../../call/screens/call_screen.dart';
 
@@ -20,9 +21,27 @@ class _ChannelsScreenState extends State<ChannelsScreen>
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<ChannelProvider>().loadMyChannels();
-      context.read<ChannelProvider>().loadPublicChannels();
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      final myUserId = context.read<AuthProvider>().user?.id ?? '';
+      await context.read<ChannelProvider>().loadMyChannels();
+      await context.read<ChannelProvider>().loadPublicChannels();
+      if (!mounted) return;
+      // Extraemos los IDs de usuarios de los canales directos
+      final directIds = context.read<ChannelProvider>().myChannels
+          .where((c) => c.name.startsWith('direct_'))
+          .map((c) {
+            final parts = c.name.split('_');
+            if (parts.length >= 3) {
+              return parts[1] == myUserId ? parts[2] : parts[1];
+            }
+            return null;
+          })
+          .whereType<String>()
+          .toSet()
+          .toList();
+      if (directIds.isNotEmpty) {
+        context.read<PresenceProvider>().checkPresence(directIds);
+      }
     });
   }
 
@@ -214,14 +233,49 @@ class _ChannelsScreenState extends State<ChannelsScreen>
 
   Widget _channelTile(ChannelModel channel) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final myUserId = context.read<AuthProvider>().user?.id ?? '';
+    
+    // Extraer el userId del otro usuario si es un canal directo
+    String? directTargetId;
+    if (channel.name.startsWith('direct_')) {
+      final parts = channel.name.split('_');
+      if (parts.length >= 3) {
+        directTargetId = parts[1] == myUserId ? parts[2] : parts[1];
+      }
+    }
+    final isOnline = directTargetId != null
+        ? context.watch<PresenceProvider>().isOnline(directTargetId)
+        : false;
+
     return ListTile(
       onTap: () => _openChannel(channel),
-      leading: CircleAvatar(
-        backgroundColor: isDark ? const Color(0xFF1A1A1A) : Colors.grey.shade300,
-        child: Icon(
-          channel.isPrivate ? Icons.lock : Icons.radio,
-          color: Theme.of(context).colorScheme.primary,
-        ),
+      leading: Stack(
+        children: [
+          CircleAvatar(
+            backgroundColor: isDark ? const Color(0xFF1A1A1A) : Colors.grey.shade300,
+            child: Icon(
+              channel.isPrivate ? Icons.lock : Icons.radio,
+              color: Theme.of(context).colorScheme.primary,
+            ),
+          ),
+          if (directTargetId != null)
+            Positioned(
+              bottom: 0,
+              right: 0,
+              child: Container(
+                width: 13,
+                height: 13,
+                decoration: BoxDecoration(
+                  color: isOnline ? Colors.green : Colors.grey,
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: isDark ? const Color(0xFF0A0A0A) : Colors.white,
+                    width: 2,
+                  ),
+                ),
+              ),
+            ),
+        ],
       ),
       title: Text(channel.name, style: TextStyle(color: isDark ? Colors.white : Colors.black87)),
       subtitle: Text(

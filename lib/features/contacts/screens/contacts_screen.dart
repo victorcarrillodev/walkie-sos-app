@@ -4,6 +4,7 @@ import '../../../core/models/channel_model.dart';
 import '../../../core/models/contact_model.dart';
 import '../../../core/providers/auth_provider.dart';
 import '../../../core/providers/contact_provider.dart';
+import '../../../core/providers/presence_provider.dart';
 import '../../../core/services/api_service.dart';
 import '../../call/screens/call_screen.dart';
 
@@ -21,8 +22,11 @@ class _ContactsScreenState extends State<ContactsScreen> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<ContactProvider>().loadContacts();
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await context.read<ContactProvider>().loadContacts();
+      if (!mounted) return;
+      final ids = context.read<ContactProvider>().contacts.map((c) => c.contactId).toList();
+      context.read<PresenceProvider>().checkPresence(ids);
     });
   }
 
@@ -109,7 +113,10 @@ class _ContactsScreenState extends State<ContactsScreen> {
 
       Navigator.push(
         context,
-        MaterialPageRoute(builder: (_) => CallScreen(channel: channel)),
+        MaterialPageRoute(builder: (_) => CallScreen(
+          channel: channel,
+          targetUserId: contact.contactId,
+        )),
       );
     } catch (e) {
       if (mounted) {
@@ -168,22 +175,43 @@ class _ContactsScreenState extends State<ContactsScreen> {
   Widget _contactTile(ContactModel contact) {
     final isLoading = _loadingContactId == contact.contactId;
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final isOnline = context.watch<PresenceProvider>().isOnline(contact.contactId);
 
     return ListTile(
       onTap: isLoading ? null : () => _openDirectCall(contact),
       contentPadding:
           const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-      leading: CircleAvatar(
-        radius: 24,
-        backgroundColor: isDark ? const Color(0xFF1A1A1A) : Colors.grey.shade300,
-        child: Text(
-          contact.alias[0].toUpperCase(),
-          style: TextStyle(
-            color: Theme.of(context).colorScheme.primary,
-            fontWeight: FontWeight.bold,
-            fontSize: 18,
+      leading: Stack(
+        children: [
+          CircleAvatar(
+            radius: 24,
+            backgroundColor: isDark ? const Color(0xFF1A1A1A) : Colors.grey.shade300,
+            child: Text(
+              contact.alias[0].toUpperCase(),
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.primary,
+                fontWeight: FontWeight.bold,
+                fontSize: 18,
+              ),
+            ),
           ),
-        ),
+          Positioned(
+            bottom: 0,
+            right: 0,
+            child: Container(
+              width: 13,
+              height: 13,
+              decoration: BoxDecoration(
+                color: isOnline ? Colors.green : Colors.grey,
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: isDark ? const Color(0xFF0A0A0A) : Colors.white,
+                  width: 2,
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
       title: Text(contact.name,
           style: TextStyle(color: isDark ? Colors.white : Colors.black87, fontSize: 15)),
