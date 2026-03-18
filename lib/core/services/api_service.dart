@@ -139,6 +139,24 @@ class ApiService {
     return response.data;
   }
 
+  // ADMINISTRACIÓN DE GRUPOS
+  Future<List<dynamic>> getChannelMembers(String channelId) async {
+    final response = await _dio.get('/channels/$channelId/members');
+    return response.data;
+  }
+
+  Future<void> toggleMuteChannel(String channelId, bool isMuted) async {
+    await _dio.patch('/channels/$channelId/mute', data: {'isMuted': isMuted});
+  }
+
+  Future<void> penalizeMember(String channelId, String userId, int? minutes) async {
+    await _dio.patch('/channels/$channelId/members/$userId/penalize', data: {'minutes': minutes});
+  }
+
+  Future<void> deleteChannel(String channelId) async {
+    await _dio.delete('/channels/$channelId');
+  }
+
   // CONTACTOS
   Future<List<dynamic>> getContacts() async {
     final response = await _dio.get('/contacts');

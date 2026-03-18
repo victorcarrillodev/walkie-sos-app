@@ -145,6 +145,11 @@ class SocketService {
     _socket?.on('users-status', callback);
   }
 
+  void onTalkError(Function(dynamic) callback) {
+    _socket?.off('talk-error');
+    _socket?.on('talk-error', callback);
+  }
+
   void removeChannelListeners() {
     _socket?.off('webrtc-offer');
     _socket?.off('webrtc-answer');
@@ -155,6 +160,7 @@ class SocketService {
     _socket?.off('online-status');
     _socket?.off('user-status-changed');
     _socket?.off('users-status');
+    _socket?.off('talk-error');
   }
 
   // Solo desconectar al hacer logout, NO al salir de un canal

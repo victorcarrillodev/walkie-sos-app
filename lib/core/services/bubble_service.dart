@@ -40,7 +40,8 @@ class BubbleService {
       notificationOptions: NotificationOptions(
         id: 99,
         title: chatName != null ? 'WalkieSOS - $chatName' : 'WalkieSOS',
-        body: 'Botón de emergencias (PTT) activo',
+        body: 'Botón activo',
+        icon: 'logo',
         channelId: 'walkiesos_bubble',
         channelName: 'WalkieSOS Bubble',
       ),

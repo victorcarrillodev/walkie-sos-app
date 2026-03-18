@@ -8,7 +8,7 @@ import 'core/providers/theme_provider.dart';
 import 'core/providers/presence_provider.dart';
 
 import 'features/auth/screens/login_screen.dart';
-import 'features/channels/screens/channels_screen.dart';
+import 'features/groups/screens/groups_screen.dart';
 import 'features/contacts/screens/contacts_screen.dart';
 import 'features/recents/screens/recents_screen.dart';
 
@@ -133,7 +133,7 @@ class _HomeScreenState extends State<HomeScreen> {
   final List<Widget> _screens = const [
     RecentsScreen(),
     ContactsScreen(),
-    ChannelsScreen(),
+    GroupsScreen(),
   ];
 
   @override
@@ -162,7 +162,7 @@ class _HomeScreenState extends State<HomeScreen> {
           items: const [
             BottomNavigationBarItem(icon: Icon(Icons.history), label: 'Recientes'),
             BottomNavigationBarItem(icon: Icon(Icons.people), label: 'Contactos'),
-            BottomNavigationBarItem(icon: Icon(Icons.radio), label: 'Canales'),
+            BottomNavigationBarItem(icon: Icon(Icons.groups), label: 'Grupos'),
           ],
         ),
       ),

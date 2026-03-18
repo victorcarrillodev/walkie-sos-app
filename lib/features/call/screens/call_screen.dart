@@ -19,10 +19,12 @@ import '../../../core/models/channel_model.dart';
 import '../../../core/models/message_model.dart';
 import '../../../core/providers/auth_provider.dart';
 import '../../../core/providers/presence_provider.dart';
+import '../../../core/providers/channel_provider.dart';
 import '../../../core/services/database_service.dart';
 import '../../../core/services/socket_service.dart';
 import '../../../core/services/webrtc_service.dart';
 import '../../../core/services/bubble_service.dart';
+import '../../groups/screens/group_settings_screen.dart';
 
 class CallScreen extends StatefulWidget {
   final ChannelModel channel;
@@ -67,6 +69,7 @@ class _CallScreenState extends State<CallScreen> {
   // Variables para canal directo (sin estado de online — lo lee PresenceProvider)
   bool _isDirectChannel = false;
   String? _targetUserId;
+  bool _isAdmin = false;
 
   @override
   void initState() {
@@ -142,6 +145,19 @@ class _CallScreenState extends State<CallScreen> {
       await _generateBeep();
       _setupListeners();
       
+      // Obtener rol si es un grupo
+      if (widget.channel.isGroup) {
+        final members = await context.read<ChannelProvider>().getChannelMembers(widget.channel.id);
+        final me = members.firstWhere((m) => m['userId'] == _myUserId, orElse: () => null);
+        if (me != null && me['role'] == 'ADMIN') {
+          if (mounted) {
+            setState(() {
+              _isAdmin = true;
+            });
+          }
+        }
+      }
+      
       if (_isDirectChannel && _targetUserId != null) {
         context.read<PresenceProvider>().checkSinglePresence(_targetUserId!);
       }
@@ -160,9 +176,9 @@ class _CallScreenState extends State<CallScreen> {
       if (Platform.isAndroid) {
         final androidConfig = FlutterBackgroundAndroidConfig(
           notificationTitle: "Walkie SOS: ${widget.channel.name}",
-          notificationText: "Escuchando el canal de emergencia...",
+          notificationText: "Escuchando el canal",
           notificationImportance: AndroidNotificationImportance.normal,
-          notificationIcon: const AndroidResource(name: 'ic_launcher', defType: 'mipmap'),
+          notificationIcon: const AndroidResource(name: 'logo', defType: 'drawable'),
         );
         
         bool hasPermissions = await FlutterBackground.initialize(androidConfig: androidConfig);
@@ -264,6 +280,16 @@ class _CallScreenState extends State<CallScreen> {
     _socket.onReceiveAudio((data) async {
       final map = data is List ? data[0] : data;
       await _saveAudioHistory(map); 
+    });
+
+    _socket.onTalkError((data) {
+      if (!mounted) return;
+      setState(() => _isTalking = false);
+      final msg = data is Map ? data['message'] : data[0]['message'];
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(msg ?? 'No puedes hablar en este momento.'),
+        backgroundColor: Colors.red,
+      ));
     });
   }
 
@@ -425,6 +451,16 @@ class _CallScreenState extends State<CallScreen> {
           onPressed: () => Navigator.pop(context),
         ),
         actions: [
+          if (_isAdmin)
+            IconButton(
+              icon: const Icon(Icons.settings),
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => GroupSettingsScreen(channel: widget.channel)),
+                );
+              },
+            ),
           IconButton(
             icon: const Icon(Icons.picture_in_picture_alt),
             onPressed: () async {

@@ -67,4 +67,46 @@ class ChannelProvider extends ChangeNotifier {
       return false;
     }
   }
+
+  // ADMINISTRACIÓN DE GRUPOS
+  Future<List<dynamic>> getChannelMembers(String channelId) async {
+    try {
+      return await _api.getChannelMembers(channelId);
+    } catch (e) {
+      _error = 'Error al cargar miembros';
+      return [];
+    }
+  }
+
+  Future<bool> toggleMuteChannel(String channelId, bool isMuted) async {
+    try {
+      await _api.toggleMuteChannel(channelId, isMuted);
+      return true;
+    } catch (e) {
+      _error = 'Error al cambiar estado del grupo';
+      return false;
+    }
+  }
+
+  Future<bool> penalizeMember(String channelId, String userId, int? minutes) async {
+    try {
+      await _api.penalizeMember(channelId, userId, minutes);
+      return true;
+    } catch (e) {
+      _error = 'Error al penalizar usuario';
+      return false;
+    }
+  }
+
+  Future<bool> deleteChannel(String channelId) async {
+    try {
+      await _api.deleteChannel(channelId);
+      _myChannels.removeWhere((c) => c.id == channelId);
+      notifyListeners();
+      return true;
+    } catch (e) {
+      _error = 'Error al eliminar el grupo';
+      return false;
+    }
+  }
 }

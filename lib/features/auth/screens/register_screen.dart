@@ -40,6 +40,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(auth.error ?? 'Error al registrarse')),
       );
+    } else if (ok && mounted) {
+      Navigator.of(context).popUntil((route) => route.isFirst);
     }
   }
 
