@@ -1,6 +1,7 @@
 import 'dart:ui';
 import 'dart:async';
-import 'package:dash_bubble/dash_bubble.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_overlay_window/flutter_overlay_window.dart';
 
 const String bubblePortName = 'bubble_ptt_port';
 
@@ -10,110 +11,120 @@ class BubbleService {
   BubbleService._internal();
 
   Future<void> init() async {
-    await DashBubble.instance.requestOverlayPermission();
-    await DashBubble.instance.requestPostNotificationsPermission();
+    final status = await FlutterOverlayWindow.isPermissionGranted();
+    if (!status) {
+      await FlutterOverlayWindow.requestPermission();
+    }
   }
 
   Future<void> showBubble({String? chatName}) async {
-    final hasOverlay = await DashBubble.instance.hasOverlayPermission();
-    if (!hasOverlay) {
-      await DashBubble.instance.requestOverlayPermission();
-      return; // Do not proceed if permission wasn't there initially, user must grant it.
+    final status = await FlutterOverlayWindow.isPermissionGranted();
+    if (!status) {
+      await FlutterOverlayWindow.requestPermission();
+      return; 
     }
     
-    // Si ya está corriendo, no hacemos nada
-    if (await DashBubble.instance.isRunning()) return;
+    final isActive = await FlutterOverlayWindow.isActive();
+    if (isActive) return;
 
-    await DashBubble.instance.startBubble(
-      bubbleOptions: BubbleOptions(
-        bubbleIcon: 'ic_mic',
-        closeIcon: 'ic_close',
-        bubbleSize: 72,
-        opacity: 1,
-        enableClose: true,
-        closeBehavior: CloseBehavior.fixed, // Evita que se mueva feo la "X" al arrastrar
-        distanceToClose: 80,
-        enableAnimateToEdge: true,
-        enableBottomShadow: false, // Desactiva la sombra rara que se movía
-        keepAliveWhenAppExit: false, 
-      ),
-      notificationOptions: NotificationOptions(
-        id: 99,
-        title: chatName != null ? 'WalkieSOS - $chatName' : 'WalkieSOS',
-        body: 'Botón activo',
-        icon: 'logo',
-        channelId: 'walkiesos_bubble',
-        channelName: 'WalkieSOS Bubble',
-      ),
-      onTapDown: _onBubbleTapDown,
-      onMove: _onBubbleMove,
-      onTapUp: _onBubbleTapUp,
+    await FlutterOverlayWindow.showOverlay(
+      overlayTitle: "WalkieSOS",
+      overlayContent: "Botón activo",
+      flag: OverlayFlag.focusPointer,
+      visibility: NotificationVisibility.visibilityPublic,
+      positionGravity: PositionGravity.auto,
+      height: 400,
+      width: 200,
+      enableDrag: true,
     );
+    
+    // Compartimos el nombre del chat con el overlay
+    await FlutterOverlayWindow.shareData(chatName ?? '');
   }
 
   Future<void> hideBubble() async {
-    if (await DashBubble.instance.isRunning()) {
-      await DashBubble.instance.stopBubble();
+    final isActive = await FlutterOverlayWindow.isActive();
+    if (isActive) {
+      await FlutterOverlayWindow.closeOverlay();
     }
   }
 }
 
 // ---------------------------------------------------------
-// Callbacks para DashBubble (deben ser top-level)
+// Callbacks para el Overlay (deben ser top-level)
 // ---------------------------------------------------------
 
-// Guardamos variables globales en el Isolate
-bool _isBubbleDragging = false;
-Timer? _bubblePressTimer;
-double _startX = 0;
-double _startY = 0;
+class OverlayWidget extends StatefulWidget {
+  const OverlayWidget({super.key});
 
-// Variables para la mantención del estado
-bool _isPermanentRecording = false;
-
-@pragma('vm:entry-point')
-void _onBubbleTapDown(double x, double y) {
-  _isBubbleDragging = false;
-  _startX = x;
-  _startY = y;
-  
-  _bubblePressTimer?.cancel();
-  _bubblePressTimer = Timer(const Duration(milliseconds: 200), () {
-    // Si no se está arrastrando y no está en modo permanente, se inicia PTT por hold
-    if (!_isBubbleDragging && !_isPermanentRecording) {
-      final sendPort = IsolateNameServer.lookupPortByName(bubblePortName);
-      sendPort?.send('start');
-    }
-  });
+  @override
+  State<OverlayWidget> createState() => _OverlayWidgetState();
 }
 
-@pragma('vm:entry-point')
-void _onBubbleMove(double x, double y) {
-  // Calcular distancia desde el punto inicial
-  final distance = (x - _startX).abs() + (y - _startY).abs();
-  
-  // Solo se considera arrastre si se movió más de 10 unidades
-  if (!_isBubbleDragging && distance > 10) {
-    _isBubbleDragging = true;
+class _OverlayWidgetState extends State<OverlayWidget> {
+  String _chatName = "";
+  bool _isPermanentRecording = false;
+  bool _isPressed = false;
+  Timer? _bubblePressTimer;
+  Timer? _positionTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    FlutterOverlayWindow.overlayListener.listen((event) {
+      if (event is String) {
+        setState(() {
+          _chatName = event;
+        });
+      }
+    });
+
+    _positionTimer = Timer.periodic(const Duration(milliseconds: 500), (timer) async {
+       try {
+         final position = await FlutterOverlayWindow.getOverlayPosition();
+         
+         // Fetch real device height bounds
+         final view = PlatformDispatcher.instance.views.first;
+         final screenHeight = view.physicalSize.height / view.devicePixelRatio;
+
+         debugPrint("Overlay Y position: ${position.y} | Screen height: $screenHeight");
+
+         // If dragged down past the 85% mark of the screen length
+         if (position.y > (screenHeight * 0.85)) { 
+           FlutterOverlayWindow.closeOverlay();
+         }
+       } catch (e) {
+         debugPrint("Error al obtener posición: $e");
+       }
+    });
+  }
+
+  @override
+  void dispose() {
+    _positionTimer?.cancel();
+    super.dispose();
+  }
+
+  void _onTapDown(TapDownDetails details) {
+    setState(() => _isPressed = true);
     _bubblePressTimer?.cancel();
-    final sendPort = IsolateNameServer.lookupPortByName(bubblePortName);
-    sendPort?.send('stop_cancel'); 
+    _bubblePressTimer = Timer(const Duration(milliseconds: 200), () {
+      if (!_isPermanentRecording) {
+        final sendPort = IsolateNameServer.lookupPortByName(bubblePortName);
+        sendPort?.send('start');
+      }
+    });
   }
-}
 
-@pragma('vm:entry-point')
-void _onBubbleTapUp(double x, double y) {
-  bool isShortTap = false;
-  
-  // Si el timer sigue activo, significa que soltó antes de 200ms (un toque rápido)
-  if (_bubblePressTimer != null && _bubblePressTimer!.isActive) {
-    isShortTap = true;
-  }
-  _bubblePressTimer?.cancel();
-  
-  if (!_isBubbleDragging) {
+  void _onTapUp(TapUpDetails details) {
+    setState(() => _isPressed = false);
+    bool isShortTap = false;
+    if (_bubblePressTimer != null && _bubblePressTimer!.isActive) {
+      isShortTap = true;
+    }
+    _bubblePressTimer?.cancel();
+    
     if (isShortTap) {
-      // Toque corto: alternar modo grabación permanente
       final sendPort = IsolateNameServer.lookupPortByName(bubblePortName);
       if (_isPermanentRecording) {
         _isPermanentRecording = false;
@@ -123,7 +134,6 @@ void _onBubbleTapUp(double x, double y) {
         sendPort?.send('start');
       }
     } else {
-      // Toque largo: detener solo si no estaba en modo permanente
       if (!_isPermanentRecording) {
         final sendPort = IsolateNameServer.lookupPortByName(bubblePortName);
         sendPort?.send('stop');
@@ -131,5 +141,64 @@ void _onBubbleTapUp(double x, double y) {
     }
   }
 
-  _isBubbleDragging = false;
+  void _onTapCancel() {
+    setState(() => _isPressed = false);
+    _bubblePressTimer?.cancel();
+    if (!_isPermanentRecording) {
+      final sendPort = IsolateNameServer.lookupPortByName(bubblePortName);
+      sendPort?.send('stop_cancel');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      elevation: 0,
+      child: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            GestureDetector(
+              onTapDown: _onTapDown,
+              onTapUp: _onTapUp,
+              onTapCancel: _onTapCancel,
+              child: Container(
+                 width: 72,
+                 height: 72,
+                 decoration: BoxDecoration(
+                   color: _isPermanentRecording ? Colors.red : (_isPressed ? Colors.green.shade700 : Colors.green),
+                   shape: BoxShape.circle,
+                   boxShadow: [
+                     BoxShadow(
+                       color: Colors.black.withOpacity(0.3),
+                       blurRadius: 8,
+                       offset: const Offset(0, 4),
+                     )
+                   ],
+                 ),
+                 child: const Icon(Icons.mic, size: 40, color: Colors.white),
+              ),
+            ),
+            if (_chatName.isNotEmpty) ...[
+              const SizedBox(height: 4),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(
+                  color: Colors.black87,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  _chatName,
+                  style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                  overflow: TextOverflow.ellipsis,
+                  maxLines: 1,
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
 }

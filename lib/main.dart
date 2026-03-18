@@ -11,6 +11,17 @@ import 'features/auth/screens/login_screen.dart';
 import 'features/groups/screens/groups_screen.dart';
 import 'features/contacts/screens/contacts_screen.dart';
 import 'features/recents/screens/recents_screen.dart';
+import 'core/services/bubble_service.dart';
+
+@pragma("vm:entry-point")
+void overlayMain() {
+  WidgetsFlutterBinding.ensureInitialized();
+  runApp(const MaterialApp(
+    debugShowCheckedModeBanner: false,
+    color: Colors.transparent,
+    home: OverlayWidget(),
+  ));
+}
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
