@@ -7,7 +7,7 @@ import 'dart:isolate';
 import 'dart:ui';
 
 import 'package:audio_session/audio_session.dart';
-import 'package:audioplayers/audioplayers.dart';
+import 'package:audioplayers/audioplayers.dart' hide AVAudioSessionCategory;
 import 'package:flutter/material.dart';
 import 'package:flutter_background/flutter_background.dart';
 import 'package:path_provider/path_provider.dart';
@@ -22,8 +22,8 @@ import '../../../core/providers/presence_provider.dart';
 import '../../../core/providers/channel_provider.dart';
 import '../../../core/services/database_service.dart';
 import '../../../core/services/socket_service.dart';
-import '../../../core/services/webrtc_service.dart';
 import '../../../core/services/bubble_service.dart';
+import '../../../core/services/webrtc_service.dart';
 import '../../groups/screens/group_settings_screen.dart';
 
 class CallScreen extends StatefulWidget {
@@ -139,7 +139,7 @@ class _CallScreenState extends State<CallScreen> {
 
       if (!_socket.isConnected) await _socket.connect();
       _socket.joinChannel(widget.channel.id);
-      _webRTCService.init(widget.channel.id); 
+      _webRTCService.init(widget.channel.id, myUserId: _myUserId);
       
       await _loadMessages();
       await _generateBeep();
@@ -171,7 +171,23 @@ class _CallScreenState extends State<CallScreen> {
   Future<void> _setupBackgroundExecution() async {
     try {
       final session = await AudioSession.instance;
-      await session.configure(AudioSessionConfiguration.speech());
+      // Configuramos la sesión de audio con modo 'speech' y forzamos
+      // la salida por altavoz sólo cuando el usuario explícitamente escucha.
+      // Esto reduce la retroalimentación del micrófono al altavoz.
+      await session.configure(AudioSessionConfiguration(
+        avAudioSessionCategory: AVAudioSessionCategory.playAndRecord,
+        avAudioSessionCategoryOptions: AVAudioSessionCategoryOptions.allowBluetooth,
+        avAudioSessionMode: AVAudioSessionMode.voiceChat, // modo voz: usa cancelación de eco del sistema
+        avAudioSessionRouteSharingPolicy: AVAudioSessionRouteSharingPolicy.defaultPolicy,
+        avAudioSessionSetActiveOptions: AVAudioSessionSetActiveOptions.none,
+        androidAudioAttributes: const AndroidAudioAttributes(
+          contentType: AndroidAudioContentType.speech,
+          flags: AndroidAudioFlags.none,
+          usage: AndroidAudioUsage.voiceCommunication, // cancel de eco del SO en Android
+        ),
+        androidAudioFocusGainType: AndroidAudioFocusGainType.gain,
+        androidWillPauseWhenDucked: true,
+      ));
 
       if (Platform.isAndroid) {
         final androidConfig = FlutterBackgroundAndroidConfig(
@@ -279,6 +295,9 @@ class _CallScreenState extends State<CallScreen> {
 
     _socket.onReceiveAudio((data) async {
       final map = data is List ? data[0] : data;
+      // Ignorar el audio que nosotros mismos enviamos para evitar retroalimentación
+      final senderId = map['userId'] as String? ?? '';
+      if (senderId == _myUserId) return;
       await _saveAudioHistory(map); 
     });
 
@@ -298,6 +317,12 @@ class _CallScreenState extends State<CallScreen> {
 
     setState(() => _isTalking = true);
     
+    // Pausar reproducción para que el micrófono no capture el altavoz
+    await _player.pause();
+    
+    // Iniciamos WebRTC para streaming en tiempo real
+    // El eco acuústico se maneja a nivel de HW via AndroidAudioUsage.voiceCommunication
+    // + echoCancellation:true en las constraints de getUserMedia
     await _webRTCService.startTalking();
     _socket.sendPttStart(widget.channel.id);
     await _playBeep();
@@ -422,7 +447,7 @@ class _CallScreenState extends State<CallScreen> {
 
   @override
   void dispose() {
-    _webRTCService.stopTalking(); 
+    _webRTCService.dispose();
     _socket.leaveChannel(widget.channel.id);
     _socket.removeChannelListeners();
     BubbleService().hideBubble();

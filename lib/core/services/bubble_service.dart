@@ -32,7 +32,7 @@ class BubbleService {
       overlayContent: "Botón activo",
       flag: OverlayFlag.focusPointer,
       visibility: NotificationVisibility.visibilityPublic,
-      positionGravity: PositionGravity.auto,
+      positionGravity: PositionGravity.none,
       height: 400,
       width: 200,
       enableDrag: true,
@@ -79,7 +79,7 @@ class _OverlayWidgetState extends State<OverlayWidget> {
       }
     });
 
-    _positionTimer = Timer.periodic(const Duration(milliseconds: 500), (timer) async {
+    _positionTimer = Timer.periodic(const Duration(milliseconds: 200), (timer) async {
        try {
          final position = await FlutterOverlayWindow.getOverlayPosition();
          
@@ -89,8 +89,9 @@ class _OverlayWidgetState extends State<OverlayWidget> {
 
          debugPrint("Overlay Y position: ${position.y} | Screen height: $screenHeight");
 
-         // If dragged down past the 85% mark of the screen length
-         if (position.y > (screenHeight * 0.85)) { 
+         // En Android, dependiente de la configuración, position.y puede representar una coordenada absoluta.
+         // Para cerrarlo solo en la parte inferior, verificamos que rebase el 90% (o más abajo) de la pantalla.
+         if (position.y > (screenHeight * 0.90)) { 
            FlutterOverlayWindow.closeOverlay();
          }
        } catch (e) {
