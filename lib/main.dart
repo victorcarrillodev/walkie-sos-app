@@ -34,21 +34,32 @@ void main() async {
   final prefs = await SharedPreferences.getInstance();
   final themeModeIndex = prefs.getInt('themeMode') ?? ThemeMode.dark.index;
   final primaryColorValue = prefs.getInt('primaryColor') ?? 0xFF00E676;
+  
+  List<Color>? primaryGradientColors;
+  final gradientString = prefs.getString('primaryGradient');
+  if (gradientString != null && gradientString.isNotEmpty) {
+    try {
+      primaryGradientColors = gradientString.split(',').map((s) => Color(int.parse(s))).toList();
+    } catch (_) {}
+  }
 
   runApp(WalkieSosApp(
     initialThemeMode: ThemeMode.values[themeModeIndex],
     initialPrimaryColor: Color(primaryColorValue),
+    initialPrimaryGradientColors: primaryGradientColors,
   ));
 }
 
 class WalkieSosApp extends StatelessWidget {
   final ThemeMode initialThemeMode;
   final Color initialPrimaryColor;
+  final List<Color>? initialPrimaryGradientColors;
 
   const WalkieSosApp({
     super.key,
     required this.initialThemeMode,
     required this.initialPrimaryColor,
+    this.initialPrimaryGradientColors,
   });
 
   @override
@@ -61,6 +72,7 @@ class WalkieSosApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => ThemeProvider(
           initialThemeMode: initialThemeMode,
           initialPrimaryColor: initialPrimaryColor,
+          initialPrimaryGradientColors: initialPrimaryGradientColors,
         )),
         ChangeNotifierProvider(create: (_) {
           final p = PresenceProvider();

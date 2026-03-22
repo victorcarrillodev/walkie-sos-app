@@ -36,9 +36,14 @@ class SettingsScreen extends StatelessWidget {
           ListTile(
             leading: const Icon(Icons.color_lens),
             title: const Text('Color Principal'),
-            trailing: CircleAvatar(
-              backgroundColor: themeProvider.primaryColor,
-              radius: 12,
+            trailing: Container(
+              width: 24,
+              height: 24,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: themeProvider.primaryGradient == null ? themeProvider.primaryColor : null,
+                gradient: themeProvider.primaryGradient,
+              ),
             ),
             onTap: () => _showColorDialog(context, themeProvider),
           ),
@@ -122,8 +127,7 @@ class SettingsScreen extends StatelessWidget {
   }
 
   void _showColorDialog(BuildContext context, ThemeProvider provider) {
-// ... existing color dialog ...
-    final colors = [
+    final solidColors = [
       const Color(0xFF00E676),
       const Color(0xFF2196F3),
       const Color(0xFFF44336), // Rojo
@@ -134,28 +138,77 @@ class SettingsScreen extends StatelessWidget {
       const Color(0xFF3F51B5), // Indigo
     ];
 
+    final gradients = [
+      [const Color(0xFF00C6FF), const Color(0xFF0072FF)], // Blue
+      [const Color(0xFFFDC830), const Color(0xFFF37335)], // Orange
+      [const Color(0xFF8E2DE2), const Color(0xFF4A00E0)], // Purple
+      [const Color(0xFF11998E), const Color(0xFF38EF7D)], // Green
+      [const Color(0xFFFC466B), const Color(0xFF3F5EFB)], // Pink-Blue
+      [const Color(0xFFFF416C), const Color(0xFFFF4B2B)], // Red
+    ];
+
     showDialog(
       context: context,
       builder: (_) => AlertDialog(
-        title: const Text('Seleccionar Color'),
-        content: Wrap(
-          spacing: 16,
-          runSpacing: 16,
-          alignment: WrapAlignment.center,
-          children: colors.map((color) {
-            final isSelected = provider.primaryColor.value == color.value;
-            return GestureDetector(
-              onTap: () {
-                provider.setPrimaryColor(color);
-                Navigator.pop(context);
-              },
-              child: CircleAvatar(
-                backgroundColor: color,
-                radius: 24,
-                child: isSelected ? const Icon(Icons.check, color: Colors.white) : null,
+        title: const Text('Color Principal'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('Sólidos', style: TextStyle(fontWeight: FontWeight.bold)),
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 16,
+                runSpacing: 16,
+                alignment: WrapAlignment.start,
+                children: solidColors.map((color) {
+                  final isSelected = provider.primaryGradient == null && provider.primaryColor.value == color.value;
+                  return GestureDetector(
+                    onTap: () {
+                      provider.setPrimaryColor(color);
+                      Navigator.pop(context);
+                    },
+                    child: CircleAvatar(
+                      backgroundColor: color,
+                      radius: 20,
+                      child: isSelected ? const Icon(Icons.check, color: Colors.white, size: 20) : null,
+                    ),
+                  );
+                }).toList(),
               ),
-            );
-          }).toList(),
+              const SizedBox(height: 24),
+              const Text('Degradados', style: TextStyle(fontWeight: FontWeight.bold)),
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 16,
+                runSpacing: 16,
+                alignment: WrapAlignment.start,
+                children: gradients.map((gradColors) {
+                  final isSelected = provider.primaryGradient != null && provider.primaryColor.value == gradColors.first.value;
+                  return GestureDetector(
+                    onTap: () {
+                      provider.setPrimaryGradient(gradColors);
+                      Navigator.pop(context);
+                    },
+                    child: Container(
+                      width: 40,
+                      height: 40,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        gradient: LinearGradient(
+                          colors: gradColors,
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        ),
+                      ),
+                      child: isSelected ? const Icon(Icons.check, color: Colors.white, size: 20) : null,
+                    ),
+                  );
+                }).toList(),
+              ),
+            ],
+          ),
         ),
       ),
     );

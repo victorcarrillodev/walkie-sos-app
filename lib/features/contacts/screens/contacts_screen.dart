@@ -7,8 +7,9 @@ import '../../../core/providers/contact_provider.dart';
 import '../../../core/providers/presence_provider.dart';
 import '../../../core/services/api_service.dart';
 import '../../call/screens/call_screen.dart';
-
 import '../../settings/screens/settings_screen.dart';
+import '../../../core/utils/gradient_extension.dart';
+import '../../../core/providers/theme_provider.dart';
 
 class ContactsScreen extends StatefulWidget {
   const ContactsScreen({super.key});
@@ -140,10 +141,13 @@ class _ContactsScreenState extends State<ContactsScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Contactos'),
+        title: const Text('Contactos',
+            style: TextStyle(
+                fontSize: 22,
+                fontWeight: FontWeight.bold)).withPrimaryGradient(context),
         actions: [
           IconButton(
-            icon: Icon(Icons.settings, color: Theme.of(context).colorScheme.primary),
+            icon: const Icon(Icons.settings).withPrimaryGradient(context),
             onPressed: () {
               Navigator.push(
                 context,
@@ -170,10 +174,17 @@ class _ContactsScreenState extends State<ContactsScreen> {
                       _contactTile(provider.contacts[i]),
                 ),
       floatingActionButton: provider.contacts.isNotEmpty
-          ? FloatingActionButton(
-              onPressed: _showAddContactDialog,
-              backgroundColor: Theme.of(context).colorScheme.primary,
-              child: const Icon(Icons.person_add, color: Colors.black),
+          ? Container(
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: context.watch<ThemeProvider>().primaryGradient,
+              ),
+              child: FloatingActionButton(
+                onPressed: _showAddContactDialog,
+                backgroundColor: context.watch<ThemeProvider>().primaryGradient == null ? Theme.of(context).colorScheme.primary : Colors.transparent,
+                elevation: context.watch<ThemeProvider>().primaryGradient == null ? null : 0,
+                child: const Icon(Icons.person_add, color: Colors.white),
+              ),
             )
           : null,
     );

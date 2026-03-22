@@ -9,6 +9,7 @@ import '../../../core/providers/presence_provider.dart';
 import '../../../core/services/database_service.dart';
 import '../../call/screens/call_screen.dart';
 import '../../settings/screens/settings_screen.dart';
+import '../../../core/utils/gradient_extension.dart';
 
 class RecentsScreen extends StatefulWidget {
   const RecentsScreen({super.key});
@@ -123,15 +124,14 @@ class _RecentsScreenState extends State<RecentsScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text('Recientes',
+        title: const Text('Recientes',
             style: TextStyle(
-                color: primaryColor,
                 fontSize: 22,
-                fontWeight: FontWeight.bold)),
+                fontWeight: FontWeight.bold)).withPrimaryGradient(context),
         // BOTÓN DE CONFIGURACIÓN EN LA PARTE SUPERIOR DERECHA
         actions: [
           IconButton(
-            icon: Icon(Icons.settings, color: primaryColor),
+            icon: const Icon(Icons.settings).withPrimaryGradient(context),
             onPressed: () {
               Navigator.push(
                 context,

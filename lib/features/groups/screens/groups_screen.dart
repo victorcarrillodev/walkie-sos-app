@@ -4,8 +4,9 @@ import '../../../core/providers/auth_provider.dart';
 import '../../../core/providers/channel_provider.dart';
 import '../../../core/models/channel_model.dart';
 import '../../call/screens/call_screen.dart';
-
 import '../../settings/screens/settings_screen.dart';
+import '../../../core/utils/gradient_extension.dart';
+import '../../../core/providers/theme_provider.dart';
 
 class GroupsScreen extends StatefulWidget {
   const GroupsScreen({super.key});
@@ -197,19 +198,17 @@ class _GroupsScreenState extends State<GroupsScreen>
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Grupos',
+            const Text('Grupos',
                 style: TextStyle(
-                    color: Theme.of(context).colorScheme.primary,
                     fontSize: 22,
                     fontWeight: FontWeight.bold)),
             Text('@${auth.user?.alias ?? ''}',
-                style: TextStyle(
-                    color: Theme.of(context).colorScheme.primary, fontSize: 12)),
+                style: const TextStyle(fontSize: 12)),
           ],
-        ),
+        ).withPrimaryGradient(context),
         actions: [
           IconButton(
-            icon: Icon(Icons.settings, color: Theme.of(context).colorScheme.primary),
+            icon: const Icon(Icons.settings).withPrimaryGradient(context),
             onPressed: () {
               Navigator.push(
                 context,
@@ -276,13 +275,20 @@ class _GroupsScreenState extends State<GroupsScreen>
             label: const Text('Unirse', style: TextStyle(color: Colors.white)),
           ),
           const SizedBox(height: 10),
-          FloatingActionButton.extended(
-            heroTag: 'create_group',
-            onPressed: _showCreateDialog,
-            backgroundColor: Theme.of(context).colorScheme.primary,
-            icon: const Icon(Icons.group_add, color: Colors.black, size: 18),
-            label: const Text('Crear grupo',
-                style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+          Container(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(28),
+              gradient: context.watch<ThemeProvider>().primaryGradient,
+            ),
+            child: FloatingActionButton.extended(
+              heroTag: 'create_group',
+              onPressed: _showCreateDialog,
+              backgroundColor: context.watch<ThemeProvider>().primaryGradient == null ? Theme.of(context).colorScheme.primary : Colors.transparent,
+              elevation: context.watch<ThemeProvider>().primaryGradient == null ? null : 0,
+              icon: const Icon(Icons.group_add, color: Colors.white, size: 18),
+              label: const Text('Crear grupo',
+                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+            ),
           ),
         ],
       ),
