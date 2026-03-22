@@ -5,6 +5,8 @@ import '../../../core/providers/channel_provider.dart';
 import '../../../core/models/channel_model.dart';
 import '../../call/screens/call_screen.dart';
 
+import '../../settings/screens/settings_screen.dart';
+
 class GroupsScreen extends StatefulWidget {
   const GroupsScreen({super.key});
 
@@ -207,8 +209,13 @@ class _GroupsScreenState extends State<GroupsScreen>
         ),
         actions: [
           IconButton(
-            icon: Icon(Icons.logout, color: Colors.grey),
-            onPressed: () => context.read<AuthProvider>().logout(),
+            icon: Icon(Icons.settings, color: Theme.of(context).colorScheme.primary),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const SettingsScreen()),
+              );
+            },
           ),
         ],
         bottom: TabBar(

@@ -69,7 +69,7 @@ class ApiService {
   }) async {
     final response = await _dio.post('/channels', data: {
       'name': name,
-      if (description != null) 'description': description,
+      'description': ?description,
       'isPrivate': isPrivate,
     });
     return response.data;

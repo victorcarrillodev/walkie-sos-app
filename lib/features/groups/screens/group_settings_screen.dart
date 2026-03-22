@@ -186,7 +186,7 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
             subtitle: const Text('Solo tú y otros administradores podrán enviar audios.'),
             value: _isMuted,
             secondary: const Icon(Icons.volume_off),
-            activeColor: Theme.of(context).colorScheme.primary,
+            activeThumbColor: Theme.of(context).colorScheme.primary,
             onChanged: _toggleMute,
           ),
           const Divider(),

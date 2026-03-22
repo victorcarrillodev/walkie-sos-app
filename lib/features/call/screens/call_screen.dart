@@ -288,9 +288,11 @@ class _CallScreenState extends State<CallScreen> {
 
   void _setupListeners() {
     _socket.onPttStatus((data) {
-      if (mounted) setState(() {
+      if (mounted) {
+        setState(() {
         _whoIsTalking = (data['isTalking'] == true) ? data['alias'] : null;
       });
+      }
     });
 
     _socket.onReceiveAudio((data) async {

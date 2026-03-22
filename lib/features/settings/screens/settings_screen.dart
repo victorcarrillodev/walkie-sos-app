@@ -3,6 +3,9 @@ import 'package:provider/provider.dart';
 
 import '../../../core/providers/auth_provider.dart';
 import '../../../core/providers/theme_provider.dart';
+import '../../../core/services/emergency_service.dart';
+import '../../../core/providers/contact_provider.dart';
+import '../../../core/providers/channel_provider.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
@@ -39,12 +42,22 @@ class SettingsScreen extends StatelessWidget {
             onTap: () => _showColorDialog(context, themeProvider),
           ),
           const Divider(),
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Text('Emergencia', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey)),
+          ),
+          ListTile(
+            leading: const Icon(Icons.settings_voice, color: Colors.orange),
+            title: const Text('Configurar Alerta por Voz'),
+            subtitle: Text('Frase: ${context.watch<EmergencyService>().keyPhrase}'),
+            onTap: () => _showEmergencyDialog(context),
+          ),
+          const Divider(),
           ListTile(
             leading: const Icon(Icons.logout, color: Colors.red),
             title: const Text('Cerrar Sesión', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
             onTap: () {
               authProvider.logout();
-              // Retorna a la raíz de la app (lo que automáticamente mostrará el Login)
               Navigator.of(context).popUntil((route) => route.isFirst);
             },
           ),
@@ -54,6 +67,7 @@ class SettingsScreen extends StatelessWidget {
   }
 
   void _showThemeDialog(BuildContext context, ThemeProvider provider) {
+// ... existing theme dialog ...
     showDialog(
       context: context,
       builder: (_) => AlertDialog(
@@ -90,9 +104,10 @@ class SettingsScreen extends StatelessWidget {
   }
 
   void _showColorDialog(BuildContext context, ThemeProvider provider) {
+// ... existing color dialog ...
     final colors = [
-      const Color(0xFF00E676), // Verde original
-      const Color(0xFF2196F3), // Azul
+      const Color(0xFF00E676),
+      const Color(0xFF2196F3),
       const Color(0xFFF44336), // Rojo
       const Color(0xFFFF9800), // Naranja
       const Color(0xFF9C27B0), // Morado
@@ -125,6 +140,90 @@ class SettingsScreen extends StatelessWidget {
           }).toList(),
         ),
       ),
+    );
+  }
+
+  void _showEmergencyDialog(BuildContext context) async {
+    final emergency = context.read<EmergencyService>();
+    final contactsProvider = context.read<ContactProvider>();
+    final channelsProvider = context.read<ChannelProvider>();
+
+    if (contactsProvider.contacts.isEmpty) await contactsProvider.loadContacts();
+    if (channelsProvider.myChannels.isEmpty) await channelsProvider.loadMyChannels();
+
+    String currentPhrase = emergency.keyPhrase;
+    String? currentTargetId;
+    if (emergency.targetId != null) {
+      currentTargetId = emergency.isGroupTarget ? 'G_${emergency.targetId}' : 'C_${emergency.targetId}';
+    }
+    bool currentIsGroup = emergency.isGroupTarget;
+
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (context, setState) {
+            return AlertDialog(
+              title: const Text('Configuración de Emergencia'),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextFormField(
+                      initialValue: currentPhrase,
+                      decoration: const InputDecoration(labelText: 'Frase Clave (Ej: ayuda por favor)'),
+                      onChanged: (val) => currentPhrase = val,
+                    ),
+                    const SizedBox(height: 16),
+                    const Text('Destinatario de la alerta:', style: TextStyle(fontWeight: FontWeight.bold)),
+                    DropdownButton<String>(
+                      isExpanded: true,
+                      hint: const Text('Selecciona un contacto o grupo'),
+                      value: currentTargetId,
+                      items: [
+                        const DropdownMenuItem<String>(
+                          value: null,
+                          child: Text('Ninguno (Desactivado)'),
+                        ),
+                        ...contactsProvider.contacts.map((c) => DropdownMenuItem(
+                          value: 'C_${c.contactId}',
+                          child: Text('👤 ${c.alias} / ${c.name}'),
+                        )),
+                        ...channelsProvider.myChannels.map((c) => DropdownMenuItem(
+                          value: 'G_${c.id}',
+                          child: Text('👥 ${c.name}'),
+                        )),
+                      ],
+                      onChanged: (val) {
+                        setState(() {
+                          currentTargetId = val;
+                          if (val != null) {
+                            currentIsGroup = val.startsWith('G_');
+                          }
+                        });
+                      },
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
+                ElevatedButton(
+                  onPressed: () {
+                    String? finalTarget = currentTargetId;
+                    if (finalTarget != null) {
+                      finalTarget = finalTarget.substring(2); // Quitar prefijo C_ o G_
+                    }
+                    emergency.saveSettings(currentPhrase, finalTarget, currentIsGroup);
+                    Navigator.pop(ctx);
+                  },
+                  child: const Text('Guardar'),
+                )
+              ],
+            );
+          }
+        );
+      }
     );
   }
 }

@@ -8,6 +8,8 @@ import '../../../core/providers/presence_provider.dart';
 import '../../../core/services/api_service.dart';
 import '../../call/screens/call_screen.dart';
 
+import '../../settings/screens/settings_screen.dart';
+
 class ContactsScreen extends StatefulWidget {
   const ContactsScreen({super.key});
 
@@ -141,8 +143,13 @@ class _ContactsScreenState extends State<ContactsScreen> {
         title: const Text('Contactos'),
         actions: [
           IconButton(
-            icon: Icon(Icons.person_add_outlined, color: Theme.of(context).colorScheme.primary),
-            onPressed: _showAddContactDialog,
+            icon: Icon(Icons.settings, color: Theme.of(context).colorScheme.primary),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const SettingsScreen()),
+              );
+            },
           ),
         ],
       ),
