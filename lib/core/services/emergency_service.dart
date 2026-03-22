@@ -28,10 +28,10 @@ class EmergencyService extends ChangeNotifier {
       onError: (val) => debugPrint('SpeechToText onError: $val'),
       onStatus: (val) {
         debugPrint('SpeechToText onStatus: $val');
-        if (val == 'done' && _isListening) {
+        if ((val == 'done' || val == 'notListening') && _isListening) {
            // Reiniciar la escucha si se detiene (ya que la API a veces corta después de silencio)
            Future.delayed(const Duration(milliseconds: 500), () {
-             if (_isListening) {
+             if (_isListening && !_speechToText.isListening) {
                _startListeningInternal();
              }
            });
@@ -83,7 +83,7 @@ class EmergencyService extends ChangeNotifier {
       onResult: (result) async {
         _lastWords = result.recognizedWords;
         debugPrint("Recognized words: $_lastWords");
-        if (_lastWords.toLowerCase().contains(_keyPhrase.toLowerCase())) {
+        if (_lastWords.toLowerCase().contains(_keyPhrase.trim().toLowerCase())) {
           debugPrint("Key phrase detected!");
           await triggerEmergency();
         }
@@ -91,6 +91,8 @@ class EmergencyService extends ChangeNotifier {
       localeId: 'es_ES', // Forzar español para mayor precisión en la frase
       cancelOnError: false,
       partialResults: true,
+      listenMode: ListenMode.dictation,
+      listenFor: const Duration(hours: 24),
     );
   }
 
@@ -127,6 +129,7 @@ class EmergencyService extends ChangeNotifier {
     if (_targetId != null && SocketService().isConnected) {
        final payload = {
          'channelId': _targetId,
+         'isGroup': _isGroupTarget,
          'lat': position?.latitude ?? 0.0,
          'lng': position?.longitude ?? 0.0,
          'type': 'PANIC',

@@ -48,11 +48,14 @@ class WalkieSosApp extends StatelessWidget {
           p.startListening();
           return p;
         }),
-        ChangeNotifierProvider(create: (_) {
-          final e = EmergencyService();
-          e.init();
-          return e;
-        }),
+        ChangeNotifierProvider(
+          create: (_) {
+            final e = EmergencyService();
+            e.init();
+            return e;
+          },
+          lazy: false,
+        ),
       ],
       child: Consumer<ThemeProvider>(
         builder: (context, themeProvider, _) {
@@ -185,9 +188,10 @@ class _HomeScreenState extends State<HomeScreen> {
     if (!mounted) return;
     debugPrint('¡ALERTA RECIBIDA!: $data');
     
-    final lat = data['location']?['lat'] ?? 0.0;
-    final lng = data['location']?['lng'] ?? 0.0;
-    final alias = data['user']?['alias'] ?? 'Desconocido';
+    // Convertir de forma segura a double (previene casteos erróneos si el JSON manda enteros)
+    final double lat = (data['location']?['lat'] ?? 0.0).toDouble();
+    final double lng = (data['location']?['lng'] ?? 0.0).toDouble();
+    final String alias = data['user']?['alias']?.toString() ?? 'Desconocido';
 
     showDialog(
       context: context,
