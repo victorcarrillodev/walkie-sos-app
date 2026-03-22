@@ -96,6 +96,24 @@ Future<bool> login(String email, String password) async {
     }
   }
 
+  Future<bool> changePassword(String currentPassword, String newPassword) async {
+    _isLoading = true;
+    _error = null;
+    notifyListeners();
+
+    try {
+      await _api.changePassword(currentPassword, newPassword);
+      _isLoading = false;
+      notifyListeners();
+      return true;
+    } catch (e) {
+      _error = _parseError(e);
+      _isLoading = false;
+      notifyListeners();
+      return false;
+    }
+  }
+
   Future<void> logout() async {
   SocketService().disconnect(); // ← desconectar aquí
   final prefs = await SharedPreferences.getInstance();

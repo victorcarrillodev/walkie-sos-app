@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'core/providers/auth_provider.dart';
 import 'core/providers/channel_provider.dart';
@@ -29,11 +30,26 @@ void overlayMain() {
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  runApp(const WalkieSosApp());
+  
+  final prefs = await SharedPreferences.getInstance();
+  final themeModeIndex = prefs.getInt('themeMode') ?? ThemeMode.dark.index;
+  final primaryColorValue = prefs.getInt('primaryColor') ?? 0xFF00E676;
+
+  runApp(WalkieSosApp(
+    initialThemeMode: ThemeMode.values[themeModeIndex],
+    initialPrimaryColor: Color(primaryColorValue),
+  ));
 }
 
 class WalkieSosApp extends StatelessWidget {
-  const WalkieSosApp({super.key});
+  final ThemeMode initialThemeMode;
+  final Color initialPrimaryColor;
+
+  const WalkieSosApp({
+    super.key,
+    required this.initialThemeMode,
+    required this.initialPrimaryColor,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -42,7 +58,10 @@ class WalkieSosApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => AuthProvider()),
         ChangeNotifierProvider(create: (_) => ChannelProvider()),
         ChangeNotifierProvider(create: (_) => ContactProvider()),
-        ChangeNotifierProvider(create: (_) => ThemeProvider()),
+        ChangeNotifierProvider(create: (_) => ThemeProvider(
+          initialThemeMode: initialThemeMode,
+          initialPrimaryColor: initialPrimaryColor,
+        )),
         ChangeNotifierProvider(create: (_) {
           final p = PresenceProvider();
           p.startListening();

@@ -51,6 +51,14 @@ class ApiService {
     return response.data;
   }
 
+  Future<Map<String, dynamic>> changePassword(String currentPassword, String newPassword) async {
+    final response = await _dio.put('/auth/password', data: {
+      'currentPassword': currentPassword,
+      'newPassword': newPassword,
+    });
+    return response.data;
+  }
+
   // CANALES
   Future<List<dynamic>> getMyChannels() async {
     final response = await _dio.get('/channels/mine');

@@ -61,6 +61,16 @@ class SettingsScreen extends StatelessWidget {
             },
           ),
           const Divider(),
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Text('Cuenta', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey)),
+          ),
+          ListTile(
+            leading: const Icon(Icons.lock, color: Colors.grey),
+            title: const Text('Cambiar Contraseña'),
+            onTap: () => _showChangePasswordDialog(context),
+          ),
+          const Divider(),
           ListTile(
             leading: const Icon(Icons.logout, color: Colors.red),
             title: const Text('Cerrar Sesión', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
@@ -232,6 +242,115 @@ class SettingsScreen extends StatelessWidget {
           }
         );
       }
+    );
+  }
+
+  void _showChangePasswordDialog(BuildContext context) {
+    final currentPasswordCtrl = TextEditingController();
+    final newPasswordCtrl = TextEditingController();
+    final confirmPasswordCtrl = TextEditingController();
+    bool isLoading = false;
+    String? errorMessage;
+
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (context, setState) {
+            return AlertDialog(
+              title: const Text('Cambiar Contraseña'),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (errorMessage != null)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 8.0),
+                        child: Text(errorMessage!, style: const TextStyle(color: Colors.red)),
+                      ),
+                    TextField(
+                      controller: currentPasswordCtrl,
+                      obscureText: true,
+                      decoration: const InputDecoration(labelText: 'Contraseña Actual'),
+                    ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: newPasswordCtrl,
+                      obscureText: true,
+                      decoration: const InputDecoration(labelText: 'Nueva Contraseña'),
+                    ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: confirmPasswordCtrl,
+                      obscureText: true,
+                      decoration: const InputDecoration(labelText: 'Confirmar Nueva Contraseña'),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: isLoading ? null : () => Navigator.pop(ctx),
+                  child: const Text('Cancelar'),
+                ),
+                ElevatedButton(
+                  onPressed: isLoading
+                      ? null
+                      : () async {
+                          final currentPass = currentPasswordCtrl.text.trim();
+                          final newPass = newPasswordCtrl.text.trim();
+                          final confirmPass = confirmPasswordCtrl.text.trim();
+
+                          if (currentPass.isEmpty || newPass.isEmpty || confirmPass.isEmpty) {
+                            setState(() => errorMessage = 'Todos los campos son obligatorios');
+                            return;
+                          }
+
+                          if (newPass != confirmPass) {
+                            setState(() => errorMessage = 'Las nuevas contraseñas no coinciden');
+                            return;
+                          }
+
+                          if (newPass.length < 6) {
+                            setState(() => errorMessage = 'La nueva contraseña debe tener al menos 6 caracteres');
+                            return;
+                          }
+
+                          setState(() {
+                            isLoading = true;
+                            errorMessage = null;
+                          });
+
+                          final authProvider = context.read<AuthProvider>();
+                          final success = await authProvider.changePassword(currentPass, newPass);
+
+                          if (!ctx.mounted) return;
+
+                          if (success) {
+                            Navigator.pop(ctx);
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('Contraseña cambiada exitosamente'), backgroundColor: Colors.green),
+                            );
+                          } else {
+                            setState(() {
+                              isLoading = false;
+                              errorMessage = authProvider.error ?? 'Error al cambiar la contraseña';
+                            });
+                          }
+                        },
+                  child: isLoading
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Text('Cambiar'),
+                ),
+              ],
+            );
+          },
+        );
+      },
     );
   }
 }

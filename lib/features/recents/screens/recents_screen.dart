@@ -123,11 +123,15 @@ class _RecentsScreenState extends State<RecentsScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Recientes'),
+        title: Text('Recientes',
+            style: TextStyle(
+                color: primaryColor,
+                fontSize: 22,
+                fontWeight: FontWeight.bold)),
         // BOTÓN DE CONFIGURACIÓN EN LA PARTE SUPERIOR DERECHA
         actions: [
           IconButton(
-            icon: const Icon(Icons.settings),
+            icon: Icon(Icons.settings, color: primaryColor),
             onPressed: () {
               Navigator.push(
                 context,
@@ -189,11 +193,11 @@ class _RecentsScreenState extends State<RecentsScreen> {
                         leading: Stack(
                           children: [
                             CircleAvatar(
-                              radius: 26,
+                              radius: 24,
                               backgroundColor: isDark ? const Color(0xFF1A1A1A) : Colors.grey.shade300,
                               child: Text(
                                 displayTitle.isNotEmpty ? displayTitle[0].toUpperCase() : '?',
-                                style: TextStyle(color: primaryColor, fontWeight: FontWeight.bold, fontSize: 22),
+                                style: TextStyle(color: primaryColor, fontWeight: FontWeight.bold, fontSize: 18),
                               ),
                             ),
                             if (directTargetId != null)
@@ -219,7 +223,7 @@ class _RecentsScreenState extends State<RecentsScreen> {
                           displayTitle, 
                           style: TextStyle(
                             color: isDark ? Colors.white : Colors.black87, 
-                            fontWeight: FontWeight.bold, 
+                            fontWeight: FontWeight.w600, 
                             fontSize: 16
                           ),
                         ),
@@ -236,7 +240,7 @@ class _RecentsScreenState extends State<RecentsScreen> {
                               Expanded(
                                 child: Text(
                                   isMe ? 'Tú enviaste un audio' : '${lastMsg.alias} envió un audio',
-                                  style: const TextStyle(color: Colors.grey, fontSize: 14),
+                                  style: const TextStyle(color: Colors.grey, fontSize: 13),
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                 ),

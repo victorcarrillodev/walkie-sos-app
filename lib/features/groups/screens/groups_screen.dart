@@ -293,7 +293,7 @@ class _GroupsScreenState extends State<GroupsScreen>
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return ListTile(
       onTap: () => _openGroup(group),
-      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       leading: CircleAvatar(
         radius: 24,
         backgroundColor: isDark ? const Color(0xFF1A1A1A) : Colors.grey.shade300,
@@ -305,10 +305,11 @@ class _GroupsScreenState extends State<GroupsScreen>
       title: Text(group.name,
           style: TextStyle(
               color: isDark ? Colors.white : Colors.black87,
+              fontSize: 16,
               fontWeight: FontWeight.w600)),
       subtitle: Text(
         group.description ?? 'Sin descripción',
-        style: const TextStyle(color: Colors.grey, fontSize: 12),
+        style: const TextStyle(color: Colors.grey, fontSize: 13),
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
       ),

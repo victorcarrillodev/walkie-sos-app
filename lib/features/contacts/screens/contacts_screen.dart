@@ -187,7 +187,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
     return ListTile(
       onTap: isLoading ? null : () => _openDirectCall(contact),
       contentPadding:
-          const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+          const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       leading: Stack(
         children: [
           CircleAvatar(
@@ -221,10 +221,10 @@ class _ContactsScreenState extends State<ContactsScreen> {
         ],
       ),
       title: Text(contact.name,
-          style: TextStyle(color: isDark ? Colors.white : Colors.black87, fontSize: 15)),
+          style: TextStyle(color: isDark ? Colors.white : Colors.black87, fontSize: 16, fontWeight: FontWeight.w600)),
       subtitle: Text(
         '@${contact.alias}',
-        style: const TextStyle(color: Colors.grey, fontSize: 12),
+        style: const TextStyle(color: Colors.grey, fontSize: 13),
       ),
       trailing: isLoading
           ? SizedBox(
