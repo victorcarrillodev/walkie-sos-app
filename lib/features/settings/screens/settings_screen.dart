@@ -6,6 +6,7 @@ import '../../../core/providers/theme_provider.dart';
 import '../../../core/services/emergency_service.dart';
 import '../../../core/providers/contact_provider.dart';
 import '../../../core/providers/channel_provider.dart';
+import 'alerts_history_screen.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
@@ -51,6 +52,13 @@ class SettingsScreen extends StatelessWidget {
             title: const Text('Configurar Alerta por Voz'),
             subtitle: Text('Frase: ${context.watch<EmergencyService>().keyPhrase}'),
             onTap: () => _showEmergencyDialog(context),
+          ),
+          ListTile(
+            leading: const Icon(Icons.history, color: Colors.blue),
+            title: const Text('Historial de Alertas'),
+            onTap: () {
+              Navigator.push(context, MaterialPageRoute(builder: (_) => const AlertsHistoryScreen()));
+            },
           ),
           const Divider(),
           ListTile(
