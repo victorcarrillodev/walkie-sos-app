@@ -31,7 +31,14 @@ class CallScreen extends StatefulWidget {
   /// El userId del otro usuario en un chat directo (1-a-1).
   /// Si se provee, habilita el indicador de presencia sin parsear el nombre del canal.
   final String? targetUserId;
-  const CallScreen({super.key, required this.channel, this.targetUserId});
+  final String? displayTitle;
+  
+  const CallScreen({
+    super.key, 
+    required this.channel, 
+    this.targetUserId,
+    this.displayTitle,
+  });
 
   @override
   State<CallScreen> createState() => _CallScreenState();
@@ -492,7 +499,7 @@ class _CallScreenState extends State<CallScreen> {
             icon: const Icon(Icons.picture_in_picture_alt),
             onPressed: () async {
               await BubbleService().init();
-              await BubbleService().showBubble(chatName: widget.channel.name);
+              await BubbleService().showBubble(chatName: widget.displayTitle ?? widget.channel.name);
             },
           ),
         ],
@@ -503,7 +510,7 @@ class _CallScreenState extends State<CallScreen> {
               children: [
                 Expanded(
                   child: Text(
-                    widget.channel.name,
+                    widget.displayTitle ?? widget.channel.name,
                     style: TextStyle(
                         color: Theme.of(context).colorScheme.primary,
                         fontSize: 22,

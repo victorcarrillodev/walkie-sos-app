@@ -5,6 +5,7 @@ import '../../../core/models/channel_model.dart';
 import '../../../core/models/message_model.dart';
 import '../../../core/providers/auth_provider.dart';
 import '../../../core/providers/channel_provider.dart';
+import '../../../core/providers/contact_provider.dart';
 import '../../../core/providers/presence_provider.dart';
 import '../../../core/services/database_service.dart';
 import '../../call/screens/call_screen.dart';
@@ -38,6 +39,8 @@ class _RecentsScreenState extends State<RecentsScreen> {
     try {
       final channelProvider = context.read<ChannelProvider>();
       final currentUser = context.read<AuthProvider>().user;
+      final contacts = context.read<ContactProvider>().contacts;
+      final myUserId = currentUser?.id ?? '';
       
       await channelProvider.loadMyChannels();
       final channels = channelProvider.myChannels;
@@ -49,21 +52,48 @@ class _RecentsScreenState extends State<RecentsScreen> {
           msgs.sort((a, b) => b.createdAt.compareTo(a.createdAt));
           
           String displayTitle = channel.name;
-          final uuidRegExp = RegExp(r'^[0-9a-fA-F]{8}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{12}$');
-          
-          if (uuidRegExp.hasMatch(channel.name) || (channel.name.length >= 20 && !channel.name.contains(' '))) {
-             try {
-               final otherUserMsg = msgs.firstWhere((m) => m.userId != currentUser?.id);
-               displayTitle = otherUserMsg.alias;
-             } catch (e) {
-               displayTitle = 'Chat Privado'; 
-             }
+          String? directTargetId;
+
+          if (channel.name.startsWith('direct_')) {
+            final parts = channel.name.split('_');
+            if (parts.length >= 3) {
+              directTargetId = parts[1] == myUserId ? parts[2] : parts[1];
+            }
+
+            // Intentar extraer el alias del destinatario
+            if (directTargetId != null) {
+              try {
+                final contact = contacts.firstWhere((c) => c.contactId == directTargetId);
+                displayTitle = contact.alias;
+              } catch (_) {
+                // If contact not found, fallback to message alias
+                try {
+                  final otherUserMsg = msgs.firstWhere((m) => m.userId != currentUser?.id);
+                  displayTitle = otherUserMsg.alias;
+                } catch (e) {
+                  displayTitle = 'Chat Privado'; 
+                }
+              }
+            }
+          } else {
+            // For group channels or channels not starting with 'direct_',
+            // use existing logic if channel name looks like a UUID or long string
+            final uuidRegExp = RegExp(r'^[0-9a-fA-F]{8}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{12}$');
+            if (uuidRegExp.hasMatch(channel.name) || (channel.name.length >= 20 && !channel.name.contains(' '))) {
+               try {
+                 final otherUserMsg = msgs.firstWhere((m) => m.userId != currentUser?.id);
+                 displayTitle = otherUserMsg.alias;
+               } catch (e) {
+                 displayTitle = 'Chat Privado'; 
+               }
+            }
           }
 
           temp.add({
             'channel': channel,
             'lastMessage': msgs.first,
             'displayTitle': displayTitle, 
+            'directTargetId': directTargetId, // Store directTargetId for later use
           });
         }
       }
@@ -81,17 +111,8 @@ class _RecentsScreenState extends State<RecentsScreen> {
         });
 
         // Solicitamos el estado en línea de los usuarios de canales directos
-        final myUserId = context.read<AuthProvider>().user?.id ?? '';
         final directIds = temp
-            .map((item) {
-              final ch = item['channel'] as ChannelModel;
-              if (!ch.name.startsWith('direct_')) return null;
-              final parts = ch.name.split('_');
-              if (parts.length >= 3) {
-                return parts[1] == myUserId ? parts[2] : parts[1];
-              }
-              return null;
-            })
+            .map((item) => item['directTargetId'] as String?)
             .whereType<String>()
             .toSet()
             .toList();
@@ -121,6 +142,7 @@ class _RecentsScreenState extends State<RecentsScreen> {
     // Obtenemos colores globales dinámicos
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final primaryColor = Theme.of(context).colorScheme.primary;
+    // final contacts = context.read<ContactProvider>().contacts; // No longer needed here, moved to _loadRecents
 
     return Scaffold(
       appBar: AppBar(
@@ -173,17 +195,10 @@ class _RecentsScreenState extends State<RecentsScreen> {
                       final ChannelModel channel = item['channel'];
                       final MessageModel lastMsg = item['lastMessage'];
                       final String displayTitle = item['displayTitle']; 
+                      final String? directTargetId = item['directTargetId']; // Retrieve from item
                       final isMe = lastMsg.userId == currentUser?.id;
 
                       // Calcular online status si es canal directo
-                      String? directTargetId;
-                      if (channel.name.startsWith('direct_')) {
-                        final myId = currentUser?.id ?? '';
-                        final parts = channel.name.split('_');
-                        if (parts.length >= 3) {
-                          directTargetId = parts[1] == myId ? parts[2] : parts[1];
-                        }
-                      }
                       final isOnline = directTargetId != null
                           ? context.watch<PresenceProvider>().isOnline(directTargetId)
                           : false;
@@ -256,7 +271,11 @@ class _RecentsScreenState extends State<RecentsScreen> {
                           await Navigator.push(
                             context,
                             MaterialPageRoute(
-                              builder: (_) => CallScreen(channel: channel),
+                              builder: (_) => CallScreen(
+                                channel: channel,
+                                targetUserId: directTargetId,
+                                displayTitle: displayTitle,
+                              ),
                             ),
                           );
                           _loadRecents();

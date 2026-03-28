@@ -116,10 +116,13 @@ class _ContactsScreenState extends State<ContactsScreen> {
 
       Navigator.push(
         context,
-        MaterialPageRoute(builder: (_) => CallScreen(
-          channel: channel,
-          targetUserId: contact.contactId,
-        )),
+        MaterialPageRoute(
+          builder: (_) => CallScreen(
+            channel: channel,
+            targetUserId: contact.contactId,
+            displayTitle: contact.alias,
+          ),
+        ),
       );
     } catch (e) {
       if (mounted) {
