@@ -109,12 +109,12 @@ class _OverlayWidgetState extends State<OverlayWidget> {
   void _onTapDown(TapDownDetails details) {
     setState(() => _isPressed = true);
     _bubblePressTimer?.cancel();
-    _bubblePressTimer = Timer(const Duration(milliseconds: 200), () {
-      if (!_isPermanentRecording) {
-        final sendPort = IsolateNameServer.lookupPortByName(bubblePortName);
-        sendPort?.send('start');
-      }
-    });
+    _bubblePressTimer = Timer(const Duration(milliseconds: 200), () {});
+    
+    if (!_isPermanentRecording) {
+      final sendPort = IsolateNameServer.lookupPortByName(bubblePortName);
+      sendPort?.send('start');
+    }
   }
 
   void _onTapUp(TapUpDetails details) {
@@ -132,7 +132,6 @@ class _OverlayWidgetState extends State<OverlayWidget> {
         sendPort?.send('stop'); 
       } else {
         _isPermanentRecording = true;
-        sendPort?.send('start');
       }
     } else {
       if (!_isPermanentRecording) {

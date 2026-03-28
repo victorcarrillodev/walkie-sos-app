@@ -329,12 +329,16 @@ class _CallScreenState extends State<CallScreen> {
     // Pausar reproducción para que el micrófono no capture el altavoz
     await _player.pause();
     
+    // Notificamos a los demás inmediatamente
+    _socket.sendPttStart(widget.channel.id);
+    
+    // Reproducimos el beep sin hacer await para ganar 200ms de velocidad
+    _playBeep();
+    
     // Iniciamos WebRTC para streaming en tiempo real
     // El eco acuústico se maneja a nivel de HW via AndroidAudioUsage.voiceCommunication
     // + echoCancellation:true en las constraints de getUserMedia
     await _webRTCService.startTalking();
-    _socket.sendPttStart(widget.channel.id);
-    await _playBeep();
 
     try {
       final dir = await getApplicationDocumentsDirectory();

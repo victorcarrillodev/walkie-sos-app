@@ -20,6 +20,8 @@ class SettingsScreen extends StatelessWidget {
     if (themeProvider.themeMode == ThemeMode.light) themeName = 'Claro';
     if (themeProvider.themeMode == ThemeMode.dark) themeName = 'Oscuro';
 
+    final user = authProvider.user;
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Configuración'),
@@ -27,6 +29,87 @@ class SettingsScreen extends StatelessWidget {
       body: ListView(
         children: [
           const SizedBox(height: 10),
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Text('Cuenta', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey)),
+          ),
+          // Perfil del Usuario
+          if (user != null)
+            Container(
+              margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: themeProvider.primaryColor.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(
+                  color: themeProvider.primaryColor.withOpacity(0.3),
+                  width: 1,
+                ),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    width: 64,
+                    height: 64,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: themeProvider.primaryGradient == null ? themeProvider.primaryColor : null,
+                      gradient: themeProvider.primaryGradient,
+                    ),
+                    child: Center(
+                      child: Text(
+                        user.firstName.isNotEmpty ? user.firstName[0].toUpperCase() : 'U',
+                        style: const TextStyle(fontSize: 28, color: Colors.white, fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '${user.firstName} ${user.lastName}'.trim(),
+                          style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                        ),
+                        const SizedBox(height: 4),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: themeProvider.primaryColor.withOpacity(0.2),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Text(
+                            '@${user.alias}',
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: themeProvider.primaryColor,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          user.email,
+                          style: const TextStyle(fontSize: 14, color: Colors.grey),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ListTile(
+            leading: Icon(Icons.lock, color: themeProvider.primaryColor),
+            title: const Text('Cambiar Contraseña'),
+            onTap: () => _showChangePasswordDialog(context),
+          ),
+          const Divider(),
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Text('Apariencia', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey)),
+          ),
           ListTile(
             leading: const Icon(Icons.brightness_6),
             title: const Text('Tema de la Aplicación'),
@@ -64,16 +147,6 @@ class SettingsScreen extends StatelessWidget {
             onTap: () {
               Navigator.push(context, MaterialPageRoute(builder: (_) => const AlertsHistoryScreen()));
             },
-          ),
-          const Divider(),
-          const Padding(
-            padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: Text('Cuenta', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey)),
-          ),
-          ListTile(
-            leading: const Icon(Icons.lock, color: Colors.grey),
-            title: const Text('Cambiar Contraseña'),
-            onTap: () => _showChangePasswordDialog(context),
           ),
           const Divider(),
           ListTile(
@@ -128,23 +201,49 @@ class SettingsScreen extends StatelessWidget {
 
   void _showColorDialog(BuildContext context, ThemeProvider provider) {
     final solidColors = [
-      const Color(0xFF00E676),
-      const Color(0xFF2196F3),
-      const Color(0xFFF44336), // Rojo
-      const Color(0xFFFF9800), // Naranja
-      const Color(0xFF9C27B0), // Morado
-      const Color(0xFF00BCD4), // Teal (Turquesa)
-      const Color(0xFFE91E63), // Rosa
-      const Color(0xFF3F51B5), // Indigo
+      const Color(0xFFEF4444), // Rojo Vibrante
+      const Color(0xFFF97316), // Naranja Llamativo
+      const Color(0xFFF59E0B), // Ámbar
+      const Color(0xFFEAB308), // Amarillo
+      const Color(0xFF84CC16), // Lima
+      const Color(0xFF22C55E), // Verde Brillante
+      const Color(0xFF10B981), // Esmeralda
+      const Color(0xFF14B8A6), // Teal
+      const Color(0xFF06B6D4), // Cyan
+      const Color(0xFF0EA5E9), // Azul Claro
+      const Color(0xFF3B82F6), // Azul Océano
+      const Color(0xFF6366F1), // Índigo
+      const Color(0xFF8B5CF6), // Violeta
+      const Color(0xFFA855F7), // Morado
+      const Color(0xFFD946EF), // Fucsia
+      const Color(0xFFEC4899), // Rosa Fuerte
+      const Color(0xFFF43F5E), // Rosa Claro
+      const Color(0xFFFF0055), // Neón Rosa
+      const Color(0xFF00FFCC), // Neón Menta
+      const Color(0xFFFFD700), // Dorado Puro
     ];
 
     final gradients = [
-      [const Color(0xFF00C6FF), const Color(0xFF0072FF)], // Blue
-      [const Color(0xFFFDC830), const Color(0xFFF37335)], // Orange
-      [const Color(0xFF8E2DE2), const Color(0xFF4A00E0)], // Purple
-      [const Color(0xFF11998E), const Color(0xFF38EF7D)], // Green
-      [const Color(0xFFFC466B), const Color(0xFF3F5EFB)], // Pink-Blue
-      [const Color(0xFFFF416C), const Color(0xFFFF4B2B)], // Red
+      [const Color(0xFFFF416C), const Color(0xFFFF4B2B)], // Atardecer Naranja
+      [const Color(0xFF8E2DE2), const Color(0xFF4A00E0)], // Lluvia Morada
+      [const Color(0xFFFC466B), const Color(0xFF3F5EFB)], // Amanecer Rosa
+      [const Color(0xFF11998E), const Color(0xFF38EF7D)], // Verde Fresco
+      [const Color(0xFF2193B0), const Color(0xFF6DD5ED)], // Brisa Azul
+      [const Color(0xFFFF512F), const Color(0xFFF09819)], // Naranja Quemado
+      [const Color(0xFF00C6FF), const Color(0xFF0072FF)], // Vista Oceánica
+      [const Color(0xFFD38312), const Color(0xFFA83279)], // Caramelo
+      [const Color(0xFF00B09B), const Color(0xFF96C93D)], // Neón Cibernético
+      [const Color(0xFFFF512F), const Color(0xFFDD2476)], // Bloody Mary
+      [const Color(0xFF0CEBEB), const Color(0xFF20E3B2)], // Bajo Cero
+      [const Color(0xFF654EA3), const Color(0xFFEAAFC8)], // Púrpura Real
+      [const Color(0xFFF09819), const Color(0xFFEDDE5D)], // Pulpa de Mango
+      [const Color(0xFFE1EEC3), const Color(0xFFF05053)], // Sol de Terciopelo
+      [const Color(0xFF4776E6), const Color(0xFF8E54E9)], // Violeta Eléctrico
+      [const Color(0xFFF12711), const Color(0xFFF5AF19)], // Ladrillo de Fuego
+      [const Color(0xFFB20A2C), const Color(0xFFFFFBD5)], // Frambuesa Majestuosa
+      [const Color(0xFF348F50), const Color(0xFF56B4D3)], // Agua Esmeralda
+      [const Color(0xFF232526), const Color(0xFF414345)], // Caballero de la Noche
+      [const Color(0xFF141E30), const Color(0xFF243B55)], // Ciudad de Medianoche
     ];
 
     showDialog(
