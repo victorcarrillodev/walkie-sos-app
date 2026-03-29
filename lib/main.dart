@@ -91,6 +91,7 @@ class WalkieSosApp extends StatelessWidget {
           return MaterialApp(
             title: 'WalkieSOS',
             debugShowCheckedModeBanner: false,
+            navigatorKey: GlobalEmergencyOverlay.navigatorKey,
             builder: (context, child) {
               return GlobalEmergencyOverlay(child: child!);
             },

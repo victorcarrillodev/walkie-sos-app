@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../services/socket_service.dart';
 
 class GlobalEmergencyOverlay extends StatefulWidget {
+  static final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
+  
   final Widget child;
 
   const GlobalEmergencyOverlay({super.key, required this.child});
@@ -16,6 +19,7 @@ class _GlobalEmergencyOverlayState extends State<GlobalEmergencyOverlay> {
   bool _isAlertActive = false;
   bool _isAlertExpanded = false;
   Map<String, dynamic>? _activeAlertData;
+  Offset? _minimizedOffset;
 
   @override
   void initState() {
@@ -63,13 +67,15 @@ class _GlobalEmergencyOverlayState extends State<GlobalEmergencyOverlay> {
         _isAlertActive = false;
         _isAlertExpanded = false;
         _activeAlertData = null;
+        _minimizedOffset = null;
       });
     }
   }
 
   void _confirmTerminateAlert(String alertId) {
+    final navContext = GlobalEmergencyOverlay.navigatorKey.currentContext ?? context;
     showDialog(
-      context: context,
+      context: navContext,
       builder: (ctx) => AlertDialog(
         title: const Text('¿Terminar Alerta?'),
         content: const Text('Esto cancelará la alerta para todos los participantes. ¿Deseas continuar?'),
@@ -85,6 +91,7 @@ class _GlobalEmergencyOverlayState extends State<GlobalEmergencyOverlay> {
                 _isAlertActive = false;
                 _isAlertExpanded = false;
                 _activeAlertData = null;
+                _minimizedOffset = null;
               });
             },
             child: const Text('Terminar', style: TextStyle(color: Colors.white)),
@@ -92,6 +99,29 @@ class _GlobalEmergencyOverlayState extends State<GlobalEmergencyOverlay> {
         ],
       ),
     );
+  }
+
+  Future<void> _openGoogleMaps() async {
+    if (_activeAlertData == null) return;
+    final lat = (_activeAlertData!['location']?['lat'] ?? 0.0).toDouble();
+    final lng = (_activeAlertData!['location']?['lng'] ?? 0.0).toDouble();
+    
+    final geoUrl = Uri.parse('geo:$lat,$lng?q=$lat,$lng');
+    final webUrl = Uri.parse('https://www.google.com/maps/search/?api=1&query=$lat,$lng');
+    
+    try {
+      bool launched = await launchUrl(geoUrl, mode: LaunchMode.externalApplication);
+      if (!launched) {
+        await launchUrl(webUrl, mode: LaunchMode.externalApplication);
+      }
+    } catch (e) {
+      debugPrint('Error launching maps: $e');
+      try {
+        await launchUrl(webUrl, mode: LaunchMode.externalApplication);
+      } catch (e2) {
+        debugPrint('Error launching maps fallback: $e2');
+      }
+    }
   }
 
   @override
@@ -105,36 +135,43 @@ class _GlobalEmergencyOverlayState extends State<GlobalEmergencyOverlay> {
         // --- BANNER DE ALERTA MINIMIZADA ---
         if (_isAlertActive && !_isAlertExpanded && _activeAlertData != null)
           Positioned(
-            bottom: 16,
-            left: 16,
-            right: 16,
+            left: _minimizedOffset?.dx,
+            top: _minimizedOffset?.dy,
+            right: _minimizedOffset == null ? 16 : null,
+            bottom: _minimizedOffset == null ? 100 : null,
             child: SafeArea(
               child: GestureDetector(
                 onTap: () => setState(() => _isAlertExpanded = true),
+                onPanUpdate: (details) {
+                  setState(() {
+                    if (_minimizedOffset == null) {
+                      final size = MediaQuery.of(context).size;
+                      // Estimación de posición inicial basada en bottom:100 y right:16
+                      _minimizedOffset = Offset(size.width - 200, size.height - 150);
+                    }
+                    _minimizedOffset = _minimizedOffset! + details.delta;
+                  });
+                },
                 child: Material(
                   elevation: 10,
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(30),
+                  color: Colors.transparent,
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                     decoration: BoxDecoration(
-                      color: Colors.red.shade700,
-                      borderRadius: BorderRadius.circular(12),
+                      color: Colors.red.shade700.withValues(alpha: 0.95),
+                      borderRadius: BorderRadius.circular(30),
+                      boxShadow: const [BoxShadow(color: Colors.black45, blurRadius: 8, offset: Offset(0, 4))],
                     ),
                     child: Row(
+                      mainAxisSize: MainAxisSize.min,
                       children: [
-                        const Icon(Icons.warning_amber_rounded, color: Colors.white, size: 28),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const Text('ALERTA ACTIVA', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
-                              Text('De @${_activeAlertData!['user']?['alias'] ?? 'Desconocido'}', style: const TextStyle(color: Colors.white70)),
-                            ],
-                          )
+                        const Icon(Icons.warning_amber_rounded, color: Colors.white, size: 24),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Alerta: @${_activeAlertData!['user']?['alias'] ?? 'Desc'}',
+                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
                         ),
-                        const Icon(Icons.open_in_full, color: Colors.white),
                       ],
                     )
                   ),
@@ -214,25 +251,38 @@ class _GlobalEmergencyOverlayState extends State<GlobalEmergencyOverlay> {
                            children: [
                              Expanded(
                                child: OutlinedButton.icon(
+                                 icon: const Icon(Icons.map),
+                                 label: const Text('Maps'),
+                                 onPressed: _openGoogleMaps,
+                               ),
+                             ),
+                             const SizedBox(width: 8),
+                             Expanded(
+                               child: OutlinedButton.icon(
                                  icon: const Icon(Icons.close_fullscreen),
                                  label: const Text('Minimizar'),
                                  onPressed: () => setState(() => _isAlertExpanded = false),
                                ),
                              ),
-                             const SizedBox(width: 8),
-                             Expanded(
-                               child: ElevatedButton.icon(
-                                 style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
-                                 icon: const Icon(Icons.stop_circle),
-                                 label: const Text('Terminar'),
-                                 onPressed: () {
-                                    if (_activeAlertData != null) {
-                                       _confirmTerminateAlert(_activeAlertData!['id']);
-                                    }
-                                 },
-                               ),
-                             ),
                            ],
+                         ),
+                         const SizedBox(height: 12),
+                         SizedBox(
+                           width: double.maxFinite,
+                           child: ElevatedButton.icon(
+                             style: ElevatedButton.styleFrom(
+                               backgroundColor: Colors.red,
+                               foregroundColor: Colors.white,
+                               padding: const EdgeInsets.symmetric(vertical: 12),
+                             ),
+                             icon: const Icon(Icons.stop_circle),
+                             label: const Text('Terminar Alerta', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                             onPressed: () {
+                                if (_activeAlertData != null) {
+                                   _confirmTerminateAlert(_activeAlertData!['id']);
+                                }
+                             },
+                           ),
                          )
                        ],
                      ),
