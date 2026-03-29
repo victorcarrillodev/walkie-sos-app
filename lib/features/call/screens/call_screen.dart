@@ -156,10 +156,10 @@ class _CallScreenState extends State<CallScreen> {
       if (widget.channel.isGroup) {
         final members = await context.read<ChannelProvider>().getChannelMembers(widget.channel.id);
         final me = members.firstWhere((m) => m['userId'] == _myUserId, orElse: () => null);
-        if (me != null && me['role'] == 'ADMIN') {
+        if (me != null && (me['role'] == 'ADMIN' || me['role'] == 'MODERATOR')) {
           if (mounted) {
             setState(() {
-              _isAdmin = true;
+              _isAdmin = true; // Permite abrir GroupSettingsScreen a ambos
             });
           }
         }
@@ -276,9 +276,10 @@ class _CallScreenState extends State<CallScreen> {
   }
 
   void _scrollToBottom() {
+    // Al usar reverse: true, el fondo de la pantalla corresponde a la posición 0.0
     if (_scrollController.hasClients) {
       _scrollController.animateTo(
-        _scrollController.position.maxScrollExtent,
+        0.0,
         duration: const Duration(milliseconds: 300),
         curve: Curves.easeOut,
       );
@@ -288,8 +289,8 @@ class _CallScreenState extends State<CallScreen> {
   Future<void> _loadMessages() async {
     final msgs = await _db.getMessagesByChannel(widget.channel.id);
     if (mounted) {
-      setState(() => _messages = msgs);
-      WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
+      // Guardamos la lista en orden inverso (el más nuevo en index 0)
+      setState(() => _messages = msgs.reversed.toList());
     }
   }
 
@@ -390,7 +391,7 @@ class _CallScreenState extends State<CallScreen> {
       );
       await _db.saveMessage(msg);
       if (mounted) {
-        setState(() => _messages.add(msg));
+        setState(() => _messages.insert(0, msg));
         WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
       }
     } catch (e) {
@@ -415,7 +416,7 @@ class _CallScreenState extends State<CallScreen> {
       );
       await _db.saveMessage(msg);
       if (mounted) {
-        setState(() => _messages.add(msg));
+        setState(() => _messages.insert(0, msg));
         WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
       }
     } catch (e) {
@@ -630,6 +631,7 @@ class _CallScreenState extends State<CallScreen> {
                 ],
               ))
             : ListView.builder(
+                reverse: true, // Invierte la lista para empezar desde el fondo nativamente
                 controller: _scrollController, 
                 padding: const EdgeInsets.all(12),
                 itemCount: _messages.length,

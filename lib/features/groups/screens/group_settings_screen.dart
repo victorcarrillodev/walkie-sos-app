@@ -18,6 +18,7 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
   bool _isMuted = false;
   List<dynamic> _members = [];
   late String _myUserId;
+  String _myRole = 'USER';
 
   @override
   void initState() {
@@ -36,9 +37,11 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
     // en el frontend quizás no la tenga mapeada. Lo simplificamos o asumiendo _isMuted.
     try {
       final members = await provider.getChannelMembers(widget.channel.id);
+      final me = members.firstWhere((m) => m['userId'] == _myUserId, orElse: () => null);
       if (mounted) {
         setState(() {
           _members = members;
+          _myRole = me?['role'] ?? 'USER';
           _isLoading = false;
           // Actualizar isMuted si logramos agregarlo al modelo o leerlo después
         });
@@ -61,9 +64,19 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
   }
 
   void _showPenalizeDialog(Map<String, dynamic> member) {
-    if (member['role'] == 'ADMIN' || member['userId'] == _myUserId) {
+    if (member['userId'] == _myUserId) return;
+    
+    // Reglas de jerarquía
+    if (member['role'] == 'ADMIN') {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('No puedes penalizar a este usuario'),
+        content: Text('No puedes modificar a un Administrador.'),
+      ));
+      return;
+    }
+    
+    if (_myRole == 'MODERATOR' && member['role'] == 'MODERATOR') {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Un moderador no puede modificar a otro moderador.'),
       ));
       return;
     }
@@ -71,6 +84,8 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final String alias = member['user']['alias'];
     final bool isPunished = member['mutedUntil'] != null && DateTime.parse(member['mutedUntil']).isAfter(DateTime.now());
+    final bool isAdmin = _myRole == 'ADMIN';
+    final bool isMemberModerator = member['role'] == 'MODERATOR';
 
     showModalBottomSheet(
       context: context,
@@ -90,6 +105,27 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
                 textAlign: TextAlign.center,
               ),
             ),
+            if (isAdmin && !isMemberModerator)
+              ListTile(
+                leading: const Icon(Icons.shield, color: Colors.blue),
+                title: const Text('Hacer Moderador'),
+                onTap: () async {
+                  Navigator.pop(context);
+                  await context.read<ChannelProvider>().changeMemberRole(widget.channel.id, member['userId'], 'MODERATOR');
+                  _loadData();
+                },
+              ),
+            if (isAdmin && isMemberModerator)
+              ListTile(
+                leading: const Icon(Icons.remove_moderator, color: Colors.grey),
+                title: const Text('Quitar Moderador'),
+                onTap: () async {
+                  Navigator.pop(context);
+                  await context.read<ChannelProvider>().changeMemberRole(widget.channel.id, member['userId'], 'USER');
+                  _loadData();
+                },
+              ),
+            if (isAdmin) const Divider(),
             if (isPunished)
               ListTile(
                 leading: const Icon(Icons.volume_up, color: Colors.green),
@@ -103,28 +139,46 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
             const Divider(),
             ListTile(
               leading: const Icon(Icons.timer, color: Colors.orange),
-              title: const Text('Silenciar por 1 día'),
+              title: const Text('Silenciar por 5 minutos'),
               onTap: () async {
                 Navigator.pop(context);
-                await context.read<ChannelProvider>().penalizeMember(widget.channel.id, member['userId'], 1440);
+                await context.read<ChannelProvider>().penalizeMember(widget.channel.id, member['userId'], 5);
                 _loadData();
               },
             ),
             ListTile(
               leading: const Icon(Icons.timer, color: Colors.orange),
-              title: const Text('Silenciar por 1 semana'),
+              title: const Text('Silenciar por 10 minutos'),
               onTap: () async {
                 Navigator.pop(context);
-                await context.read<ChannelProvider>().penalizeMember(widget.channel.id, member['userId'], 10080);
+                await context.read<ChannelProvider>().penalizeMember(widget.channel.id, member['userId'], 10);
                 _loadData();
               },
             ),
             ListTile(
               leading: const Icon(Icons.timer, color: Colors.orange),
-              title: const Text('Silenciar por 1 mes'),
+              title: const Text('Silenciar por 15 minutos'),
               onTap: () async {
                 Navigator.pop(context);
-                await context.read<ChannelProvider>().penalizeMember(widget.channel.id, member['userId'], 43200);
+                await context.read<ChannelProvider>().penalizeMember(widget.channel.id, member['userId'], 15);
+                _loadData();
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.timer, color: Colors.orange),
+              title: const Text('Silenciar por 20 minutos'),
+              onTap: () async {
+                Navigator.pop(context);
+                await context.read<ChannelProvider>().penalizeMember(widget.channel.id, member['userId'], 20);
+                _loadData();
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.timer, color: Colors.orange),
+              title: const Text('Silenciar por 30 minutos'),
+              onTap: () async {
+                Navigator.pop(context);
+                await context.read<ChannelProvider>().penalizeMember(widget.channel.id, member['userId'], 30);
                 _loadData();
               },
             ),
@@ -181,15 +235,17 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
       body: ListView(
         padding: const EdgeInsets.symmetric(vertical: 16),
         children: [
-          SwitchListTile(
-            title: const Text('Silenciar a todos', style: TextStyle(fontWeight: FontWeight.bold)),
-            subtitle: const Text('Solo tú y otros administradores podrán enviar audios.'),
-            value: _isMuted,
-            secondary: const Icon(Icons.volume_off),
-            activeThumbColor: Theme.of(context).colorScheme.primary,
-            onChanged: _toggleMute,
-          ),
-          const Divider(),
+          if (_myRole == 'ADMIN') ...[
+            SwitchListTile(
+              title: const Text('Silenciar a todos', style: TextStyle(fontWeight: FontWeight.bold)),
+              subtitle: const Text('Solo tú y otros administradores podrán enviar audios.'),
+              value: _isMuted,
+              secondary: const Icon(Icons.volume_off),
+              activeThumbColor: Theme.of(context).colorScheme.primary,
+              onChanged: _toggleMute,
+            ),
+            const Divider(),
+          ],
           Padding(
             padding: const EdgeInsets.only(left: 16, top: 16, bottom: 8),
             child: Text('MIEMBROS DEL GRUPO (${_members.length})', 
@@ -200,33 +256,49 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
             final String role = member['role'];
             final bool isPunished = member['mutedUntil'] != null && DateTime.parse(member['mutedUntil']).isAfter(DateTime.now());
             
+            Color avatarColor = isDark ? const Color(0xFF1A1A1A) : Colors.grey.shade300;
+            IconData avatarIcon = Icons.person;
+            Color iconColor = Colors.grey;
+            
+            if (role == 'ADMIN') {
+              avatarColor = Theme.of(context).colorScheme.primary;
+              avatarIcon = Icons.star;
+              iconColor = Colors.black;
+            } else if (role == 'MODERATOR') {
+              avatarColor = Colors.orange.withOpacity(0.2);
+              avatarIcon = Icons.shield;
+              iconColor = Colors.orange;
+            }
+
             return ListTile(
               leading: CircleAvatar(
-                backgroundColor: role == 'ADMIN' ? Theme.of(context).colorScheme.primary : (isDark ? const Color(0xFF1A1A1A) : Colors.grey.shade300),
-                child: Icon(role == 'ADMIN' ? Icons.star : Icons.person, color: role == 'ADMIN' ? Colors.black : Colors.grey),
+                backgroundColor: avatarColor,
+                child: Icon(avatarIcon, color: iconColor),
               ),
               title: Text('@$alias', style: TextStyle(fontWeight: role == 'ADMIN' ? FontWeight.bold : FontWeight.normal)),
               subtitle: isPunished 
                   ? Text('Silenciado hasta: ${DateTime.parse(member['mutedUntil']).toLocal().toString().substring(0, 16)}', style: const TextStyle(color: Colors.red, fontSize: 11))
-                  : Text(role == 'ADMIN' ? 'Administrador' : 'Miembro', style: TextStyle(color: Colors.grey.shade500, fontSize: 12)),
-              trailing: role != 'ADMIN' ? const Icon(Icons.more_vert, color: Colors.grey) : null,
+                  : Text(role == 'ADMIN' ? 'Administrador' : (role == 'MODERATOR' ? 'Moderador' : 'Miembro'), style: TextStyle(color: role == 'MODERATOR' ? Colors.orange : Colors.grey.shade500, fontSize: 12)),
+              trailing: (role != 'ADMIN' && member['userId'] != _myUserId) ? const Icon(Icons.more_vert, color: Colors.grey) : null,
               onTap: () => _showPenalizeDialog(member),
             );
           }),
-          const SizedBox(height: 32),
-          const Divider(),
-          Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: ElevatedButton.icon(
-              icon: const Icon(Icons.delete_forever, color: Colors.white),
-              label: const Text('ELIMINAR GRUPO', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.red,
-                padding: const EdgeInsets.symmetric(vertical: 16),
+          if (_myRole == 'ADMIN') ...[
+            const SizedBox(height: 32),
+            const Divider(),
+            Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: ElevatedButton.icon(
+                icon: const Icon(Icons.delete_forever, color: Colors.white),
+                label: const Text('ELIMINAR GRUPO', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.red,
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                ),
+                onPressed: _confirmDelete,
               ),
-              onPressed: _confirmDelete,
-            ),
-          )
+            )
+          ]
         ],
       ),
     );

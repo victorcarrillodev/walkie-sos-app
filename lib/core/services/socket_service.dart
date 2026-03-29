@@ -49,8 +49,14 @@ class SocketService {
     if (!connectionCompleter.isCompleted) connectionCompleter.completeError(data);
   });
 
-  // Retornamos el futuro del completer en lugar de un Future.delayed
-  return connectionCompleter.future;
+  // Retornamos el futuro del completer con un timeout de seguridad para no bloquear pantallas de carga (login/splash)
+  return connectionCompleter.future.timeout(
+    const Duration(seconds: 4),
+    onTimeout: () {
+      debugPrint('⚠️ Socket connect timeout... continuando en segundo plano.');
+      // Dejamos que siga intentando pero liberamos la espera para no atrapar la UI
+    },
+  );
 }
 
   void joinChannel(String channelId) {
@@ -148,6 +154,10 @@ class SocketService {
   void onTalkError(Function(dynamic) callback) {
     _socket?.off('talk-error');
     _socket?.on('talk-error', callback);
+  }
+
+  void cancelAlert(String alertId, String? channelId) {
+    _socket?.emit('cancel-alert', {'alertId': alertId, 'channelId': channelId});
   }
 
   void removeChannelListeners() {

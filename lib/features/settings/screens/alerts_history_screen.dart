@@ -29,21 +29,87 @@ class _AlertsHistoryScreenState extends State<AlertsHistoryScreen> {
       _error = null;
     });
     
-    // Usamos Socket.io con ack callback para pedir el historial
-    SocketService().socket?.emitWithAck('get-alerts-history', {}, ack: (data) {
-      if (!mounted) return;
-      if (data != null && data['success'] == true) {
+    bool hasResponded = false;
+
+    // Timeout de seguridad
+    Future.delayed(const Duration(seconds: 5), () {
+      if (mounted && !hasResponded) {
         setState(() {
-          _alerts = data['alerts'];
-          _isLoading = false;
-        });
-      } else {
-        setState(() {
-          _error = data?['error'] ?? 'Error desconocido';
+          _error = 'Tiempo de espera agotado o el servidor no respondió.';
           _isLoading = false;
         });
       }
     });
+
+    // Usamos Socket.io con ack callback para pedir el historial
+    SocketService().socket?.emitWithAck('get-alerts-history', {}, ack: (data) {
+      hasResponded = true;
+      if (!mounted) return;
+      
+      try {
+        if (data is List) {
+          // El backend envió los resultados como un arreglo directo
+          setState(() {
+            _alerts = data;
+            _isLoading = false;
+          });
+        } else if (data is Map) {
+          if (data['success'] == true || data.containsKey('alerts')) {
+            setState(() {
+              _alerts = data['alerts'] ?? [];
+              _isLoading = false;
+            });
+          } else {
+            setState(() {
+              _error = data['error'] ?? 'Error desconocido';
+              _isLoading = false;
+            });
+          }
+        } else {
+          setState(() {
+            _error = 'Formato de respuesta desconocido.';
+            _isLoading = false;
+          });
+        }
+      } catch (e) {
+        setState(() {
+          _error = 'Error procesando los datos: $e';
+          _isLoading = false;
+        });
+      }
+    });
+  }
+
+  void _confirmCancelAlert(String alertId, String? channelId) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Cancelar Alerta'),
+        content: const Text('¿Estás seguro de que deseas cancelar esta alerta? Esto detendrá la notificación a los demás usuarios si es que aún está activa.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('No, mantenerla'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () {
+              Navigator.pop(ctx);
+              SocketService().cancelAlert(alertId, channelId);
+              // Actualización optimista de UI
+              setState(() {
+                final idx = _alerts.indexWhere((a) => a['id'] == alertId);
+                if (idx != -1) {
+                  _alerts[idx]['status'] = 'DISMISSED';
+                  _alerts[idx]['resolvedAt'] = DateTime.now().toIso8601String();
+                }
+              });
+            },
+            child: const Text('Sí, Cancelar', style: TextStyle(color: Colors.white)),
+          )
+        ],
+      )
+    );
   }
 
   String _formatDuration(String? start, String? end) {
@@ -106,19 +172,23 @@ class _AlertsHistoryScreenState extends State<AlertsHistoryScreen> {
                             : 'Fecha desconocida';
                             
                         final isActive = alert['status'] == 'ACTIVE';
+                        final isDismissed = alert['status'] == 'DISMISSED';
 
                         return Card(
                           margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                           color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
                           child: ListTile(
                             leading: Icon(
-                              Icons.warning_amber_rounded,
-                              color: isActive ? Colors.red : Colors.grey,
+                              isDismissed ? Icons.cancel_outlined : Icons.warning_amber_rounded,
+                              color: isActive ? Colors.red : (isDismissed ? Colors.orange : Colors.grey),
                               size: 32,
                             ),
                             title: Text(
-                              isMine ? 'Alerta Emitida' : 'Alerta Recibida',
-                              style: TextStyle(fontWeight: FontWeight.bold, color: isMine ? Colors.orange : Colors.blue),
+                              isDismissed ? 'Alerta Cancelada' : (isMine ? 'Alerta Emitida' : 'Alerta Recibida'),
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold, 
+                                color: isDismissed ? Colors.orange : (isMine ? Colors.red : Colors.blue)
+                              ),
                             ),
                             subtitle: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
@@ -130,6 +200,15 @@ class _AlertsHistoryScreenState extends State<AlertsHistoryScreen> {
                                   style: TextStyle(fontWeight: isActive ? FontWeight.bold : FontWeight.normal, color: isActive ? Colors.red : null)),
                               ],
                             ),
+                            trailing: (isMine && isActive) 
+                              ? IconButton(
+                                  icon: const Icon(Icons.cancel, color: Colors.red),
+                                  onPressed: () {
+                                    final String? cId = alert['channel']?['id'] ?? alert['channelId'];
+                                    _confirmCancelAlert(alert['id'], cId);
+                                  }
+                                )
+                              : null,
                             isThreeLine: true,
                           ),
                         );

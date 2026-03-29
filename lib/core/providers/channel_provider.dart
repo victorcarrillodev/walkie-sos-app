@@ -98,6 +98,16 @@ class ChannelProvider extends ChangeNotifier {
     }
   }
 
+  Future<bool> changeMemberRole(String channelId, String userId, String role) async {
+    try {
+      await _api.changeMemberRole(channelId, userId, role);
+      return true;
+    } catch (e) {
+      _error = 'Error al cambiar rol del usuario';
+      return false;
+    }
+  }
+
   Future<bool> deleteChannel(String channelId) async {
     try {
       await _api.deleteChannel(channelId);

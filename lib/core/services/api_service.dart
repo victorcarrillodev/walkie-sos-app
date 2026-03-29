@@ -161,6 +161,10 @@ class ApiService {
     await _dio.patch('/channels/$channelId/members/$userId/penalize', data: {'minutes': minutes});
   }
 
+  Future<void> changeMemberRole(String channelId, String userId, String role) async {
+    await _dio.patch('/channels/$channelId/members/$userId/role', data: {'role': role});
+  }
+
   Future<void> deleteChannel(String channelId) async {
     await _dio.delete('/channels/$channelId');
   }
