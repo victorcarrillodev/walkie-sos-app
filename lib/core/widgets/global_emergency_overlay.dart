@@ -20,6 +20,7 @@ class _GlobalEmergencyOverlayState extends State<GlobalEmergencyOverlay> {
   bool _isAlertExpanded = false;
   Map<String, dynamic>? _activeAlertData;
   Offset? _minimizedOffset;
+  bool _showConfirmTerminate = false;
 
   @override
   void initState() {
@@ -73,32 +74,7 @@ class _GlobalEmergencyOverlayState extends State<GlobalEmergencyOverlay> {
   }
 
   void _confirmTerminateAlert(String alertId) {
-    final navContext = GlobalEmergencyOverlay.navigatorKey.currentContext ?? context;
-    showDialog(
-      context: navContext,
-      builder: (ctx) => AlertDialog(
-        title: const Text('¿Terminar Alerta?'),
-        content: const Text('Esto cancelará la alerta para todos los participantes. ¿Deseas continuar?'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-            onPressed: () {
-              Navigator.pop(ctx);
-              final channelId = _activeAlertData?['channelId'] ?? '';
-              SocketService().socket?.emit('resolve-alert', { 'alertId': alertId, 'channelId': channelId });
-              setState(() {
-                _isAlertActive = false;
-                _isAlertExpanded = false;
-                _activeAlertData = null;
-                _minimizedOffset = null;
-              });
-            },
-            child: const Text('Terminar', style: TextStyle(color: Colors.white)),
-          ),
-        ],
-      ),
-    );
+    setState(() => _showConfirmTerminate = true);
   }
 
   Future<void> _openGoogleMaps() async {
@@ -292,7 +268,65 @@ class _GlobalEmergencyOverlayState extends State<GlobalEmergencyOverlay> {
                )
              )
           ),
+        
+        if (_showConfirmTerminate)
+          _buildConfirmDialog(context, isDark),
       ],
+    );
+  }
+
+  Widget _buildConfirmDialog(BuildContext context, bool isDark) {
+    return Positioned.fill(
+      child: Container(
+        color: Colors.black54,
+        alignment: Alignment.center,
+        child: Material(
+          color: Colors.transparent,
+          child: Container(
+            margin: const EdgeInsets.symmetric(horizontal: 40),
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF2A2A2A) : Colors.white,
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('¿Terminar Alerta?', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black)),
+                const SizedBox(height: 12),
+                Text('Esto cancelará la alerta para todos los participantes. ¿Deseas continuar?', style: TextStyle(color: isDark ? Colors.white70 : Colors.black87)),
+                const SizedBox(height: 24),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    TextButton(onPressed: () => setState(() => _showConfirmTerminate = false), child: const Text('Cancelar')),
+                    const SizedBox(width: 8),
+                    ElevatedButton(
+                      style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+                      onPressed: () {
+                        setState(() => _showConfirmTerminate = false);
+                        if (_activeAlertData != null) {
+                          final alertId = _activeAlertData!['id'];
+                          final channelId = _activeAlertData!['channelId'] ?? '';
+                          SocketService().socket?.emit('resolve-alert', { 'alertId': alertId, 'channelId': channelId });
+                        }
+                        setState(() {
+                          _isAlertActive = false;
+                          _isAlertExpanded = false;
+                          _activeAlertData = null;
+                          _minimizedOffset = null;
+                        });
+                      },
+                      child: const Text('Terminar', style: TextStyle(color: Colors.white)),
+                    ),
+                  ],
+                )
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
