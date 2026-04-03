@@ -40,6 +40,11 @@ class BubbleService {
     
     // Compartimos el nombre del chat con el overlay
     await FlutterOverlayWindow.shareData(chatName ?? '');
+    
+    // Reintentar para asegurar que el listener en el isolate se haya inicializado
+    Future.delayed(const Duration(milliseconds: 800), () async {
+      await FlutterOverlayWindow.shareData(chatName ?? '');
+    });
   }
 
   Future<void> hideBubble() async {
