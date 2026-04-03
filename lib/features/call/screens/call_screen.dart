@@ -748,15 +748,21 @@ class _CallScreenState extends State<CallScreen> {
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 color: _isTalking
-                    ? Theme.of(context).colorScheme.primary.withOpacity(0.2)
+                    ? Colors.green.withOpacity(0.2)
                     : (_whoIsTalking != null)
-                        ? Colors.red.withOpacity(0.1)
-                        : Colors.transparent,
-                boxShadow: _isTalking ? [BoxShadow(
-                  color: Theme.of(context).colorScheme.primary.withOpacity(0.45),
-                  blurRadius: 40,
-                  spreadRadius: 10,
-                )] : [],
+                        ? Colors.red.withOpacity(0.2)
+                        : Colors.blue.withOpacity(0.2),
+                boxShadow: [
+                  BoxShadow(
+                    color: _isTalking
+                        ? Colors.green.withOpacity(0.6)
+                        : (_whoIsTalking != null)
+                            ? Colors.red.withOpacity(0.6)
+                            : Colors.blue.withOpacity(0.6),
+                    blurRadius: 40,
+                    spreadRadius: 10,
+                  )
+                ],
               ),
               padding: const EdgeInsets.all(20),
               child: Image.asset(
