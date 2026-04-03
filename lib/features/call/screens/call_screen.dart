@@ -77,6 +77,8 @@ class _CallScreenState extends State<CallScreen> {
   bool _isDirectChannel = false;
   String? _targetUserId;
   bool _isAdmin = false;
+  
+  bool _isChatView = false;
 
   @override
   void initState() {
@@ -501,6 +503,12 @@ class _CallScreenState extends State<CallScreen> {
               },
             ),
           IconButton(
+            icon: Icon(_isChatView ? Icons.mic : Icons.chat),
+            onPressed: () {
+              setState(() => _isChatView = !_isChatView);
+            },
+          ),
+          IconButton(
             icon: const Icon(Icons.picture_in_picture_alt),
             onPressed: () async {
               await BubbleService().init();
@@ -605,6 +613,10 @@ class _CallScreenState extends State<CallScreen> {
           ),
         ],
       ));
+    }
+
+    if (!_isChatView) {
+      return _buildBigButtonView(isDark);
     }
 
     return Column(children: [
@@ -718,6 +730,63 @@ class _CallScreenState extends State<CallScreen> {
         ),
       ),
     ]);
+  }
+
+  Widget _buildBigButtonView(bool isDark) {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          GestureDetector(
+            onTapDown: _whoIsTalking != null ? null : (_) => _startTalking(),
+            onTapUp: (_) => _stopTalking(),
+            onTapCancel: () => _stopTalking(cancel: true),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 150),
+              width: 250,
+              height: 250,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: _isTalking
+                    ? Theme.of(context).colorScheme.primary.withOpacity(0.2)
+                    : (_whoIsTalking != null)
+                        ? Colors.red.withOpacity(0.1)
+                        : Colors.transparent,
+                boxShadow: _isTalking ? [BoxShadow(
+                  color: Theme.of(context).colorScheme.primary.withOpacity(0.45),
+                  blurRadius: 40,
+                  spreadRadius: 10,
+                )] : [],
+              ),
+              padding: const EdgeInsets.all(20),
+              child: Image.asset(
+                'assets/btn_walkie_mic.png',
+                fit: BoxFit.contain,
+                color: _whoIsTalking != null 
+                    ? Colors.grey.withOpacity(0.5) 
+                    : null,
+                colorBlendMode: _whoIsTalking != null ? BlendMode.modulate : null,
+              ),
+            ),
+          ),
+          const SizedBox(height: 50),
+          Text(
+            _isTalking 
+                ? '🔴 Transmitiendo...' 
+                : (_whoIsTalking != null)
+                    ? '$_whoIsTalking está hablando...'
+                    : 'Mantén para hablar',
+            style: TextStyle(
+              color: _isTalking 
+                  ? Theme.of(context).colorScheme.primary
+                  : (_whoIsTalking != null ? Colors.red.withOpacity(0.8) : (isDark ? Colors.white70 : Colors.black54)),
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
 
