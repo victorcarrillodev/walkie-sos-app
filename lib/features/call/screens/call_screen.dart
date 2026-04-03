@@ -505,7 +505,15 @@ class _CallScreenState extends State<CallScreen> {
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Icon(Icons.settings, color: Theme.of(context).colorScheme.primary, size: 22),
+                    Container(
+                      padding: const EdgeInsets.all(4),
+                      decoration: BoxDecoration(
+                        color: Theme.of(context).colorScheme.primary,
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(Icons.settings, color: Theme.of(context).scaffoldBackgroundColor, size: 16),
+                    ),
+                    const SizedBox(height: 2),
                     Text('Ajustes', style: TextStyle(color: Theme.of(context).colorScheme.primary, fontSize: 10, fontWeight: FontWeight.bold)),
                   ],
                 ),
@@ -520,7 +528,15 @@ class _CallScreenState extends State<CallScreen> {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(_isChatView ? Icons.mic : Icons.chat, color: Theme.of(context).colorScheme.primary, size: 22),
+                  Container(
+                    padding: const EdgeInsets.all(4),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.primary,
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(_isChatView ? Icons.mic : Icons.chat, color: Theme.of(context).scaffoldBackgroundColor, size: 16),
+                  ),
+                  const SizedBox(height: 2),
                   Text(_isChatView ? 'Audio' : 'Chat', style: TextStyle(color: Theme.of(context).colorScheme.primary, fontSize: 10, fontWeight: FontWeight.bold)),
                 ],
               ),
@@ -536,7 +552,15 @@ class _CallScreenState extends State<CallScreen> {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(Icons.picture_in_picture_alt, color: Theme.of(context).colorScheme.primary, size: 22),
+                  Container(
+                    padding: const EdgeInsets.all(4),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.primary,
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(Icons.picture_in_picture_alt, color: Theme.of(context).scaffoldBackgroundColor, size: 16),
+                  ),
+                  const SizedBox(height: 2),
                   Text('Mini', style: TextStyle(color: Theme.of(context).colorScheme.primary, fontSize: 10, fontWeight: FontWeight.bold)),
                 ],
               ),
