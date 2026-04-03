@@ -100,8 +100,17 @@ class WebRTCService {
     };
 
     // 3. Agregar tracks de audio al stream de salida
-    for (final track in _localStream!.getAudioTracks()) {
-      await _senderPc!.addTrack(track, _localStream!);
+    try {
+      for (final track in _localStream!.getAudioTracks()) {
+        await _senderPc!.addTrack(track, _localStream!);
+      }
+    } catch (e) {
+      debugPrint('❌ Error en addTrack: $e. Intentando addStream...');
+      try {
+        await _senderPc!.addStream(_localStream!);
+      } catch (e2) {
+        debugPrint('❌ Error en addStream fallback: $e2');
+      }
     }
 
     // 4. Crear oferta y enviarla

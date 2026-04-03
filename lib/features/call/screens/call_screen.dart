@@ -561,7 +561,7 @@ class _CallScreenState extends State<CallScreen> {
                     child: Icon(Icons.picture_in_picture_alt, color: Theme.of(context).scaffoldBackgroundColor, size: 16),
                   ),
                   const SizedBox(height: 2),
-                  Text('Mini', style: TextStyle(color: Theme.of(context).colorScheme.primary, fontSize: 10, fontWeight: FontWeight.bold)),
+                  Text('Flotante', style: TextStyle(color: Theme.of(context).colorScheme.primary, fontSize: 10, fontWeight: FontWeight.bold)),
                 ],
               ),
             ),

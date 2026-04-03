@@ -163,21 +163,30 @@ class _OverlayWidgetState extends State<OverlayWidget> {
               onTapDown: _onTapDown,
               onTapUp: _onTapUp,
               onTapCancel: _onTapCancel,
-              child: Container(
-                 width: 72,
-                 height: 72,
+              child: AnimatedContainer(
+                 duration: const Duration(milliseconds: 150),
+                 width: 80,
+                 height: 80,
+                 padding: const EdgeInsets.all(12),
                  decoration: BoxDecoration(
-                   color: _isPermanentRecording ? Colors.red : (_isPressed ? Colors.green.shade700 : Colors.green),
+                   color: (_isPermanentRecording || _isPressed)
+                       ? Colors.greenAccent.withOpacity(0.2)
+                       : Colors.blueAccent.withOpacity(0.2),
                    shape: BoxShape.circle,
                    boxShadow: [
                      BoxShadow(
-                       color: Colors.black.withOpacity(0.3),
-                       blurRadius: 8,
-                       offset: const Offset(0, 4),
+                       color: (_isPermanentRecording || _isPressed)
+                           ? Colors.greenAccent.withOpacity(0.6)
+                           : Colors.blueAccent.withOpacity(0.6),
+                       blurRadius: 20,
+                       spreadRadius: 5,
                      )
                    ],
                  ),
-                 child: const Icon(Icons.mic, size: 40, color: Colors.white),
+                 child: Image.asset(
+                   'assets/btn_walkie_mic.png',
+                   fit: BoxFit.contain,
+                 ),
               ),
             ),
             if (_chatName.isNotEmpty) ...[
