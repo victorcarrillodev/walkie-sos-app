@@ -493,27 +493,54 @@ class _CallScreenState extends State<CallScreen> {
         ),
         actions: [
           if (_isAdmin)
-            IconButton(
-              icon: const Icon(Icons.settings),
-              onPressed: () {
+            InkWell(
+              onTap: () {
                 Navigator.push(
                   context,
                   MaterialPageRoute(builder: (_) => GroupSettingsScreen(channel: widget.channel)),
                 );
               },
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12.0),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.settings, color: Theme.of(context).colorScheme.primary, size: 22),
+                    Text('Ajustes', style: TextStyle(color: Theme.of(context).colorScheme.primary, fontSize: 10, fontWeight: FontWeight.bold)),
+                  ],
+                ),
+              ),
             ),
-          IconButton(
-            icon: Icon(_isChatView ? Icons.mic : Icons.chat),
-            onPressed: () {
+          InkWell(
+            onTap: () {
               setState(() => _isChatView = !_isChatView);
             },
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12.0),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(_isChatView ? Icons.mic : Icons.chat, color: Theme.of(context).colorScheme.primary, size: 22),
+                  Text(_isChatView ? 'Audio' : 'Chat', style: TextStyle(color: Theme.of(context).colorScheme.primary, fontSize: 10, fontWeight: FontWeight.bold)),
+                ],
+              ),
+            ),
           ),
-          IconButton(
-            icon: const Icon(Icons.picture_in_picture_alt),
-            onPressed: () async {
+          InkWell(
+            onTap: () async {
               await BubbleService().init();
               await BubbleService().showBubble(chatName: widget.displayTitle ?? widget.channel.name);
             },
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12.0),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.picture_in_picture_alt, color: Theme.of(context).colorScheme.primary, size: 22),
+                  Text('Mini', style: TextStyle(color: Theme.of(context).colorScheme.primary, fontSize: 10, fontWeight: FontWeight.bold)),
+                ],
+              ),
+            ),
           ),
         ],
         title: Column(
@@ -748,19 +775,19 @@ class _CallScreenState extends State<CallScreen> {
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 color: _isTalking
-                    ? Colors.green.withOpacity(0.2)
+                    ? Colors.greenAccent.withOpacity(0.2)
                     : (_whoIsTalking != null)
-                        ? Colors.red.withOpacity(0.2)
-                        : Colors.blue.withOpacity(0.2),
+                        ? Colors.redAccent.withOpacity(0.2)
+                        : Colors.blueAccent.withOpacity(0.2),
                 boxShadow: [
                   BoxShadow(
                     color: _isTalking
-                        ? Colors.green.withOpacity(0.6)
+                        ? Colors.greenAccent.withOpacity(0.6)
                         : (_whoIsTalking != null)
-                            ? Colors.red.withOpacity(0.6)
-                            : Colors.blue.withOpacity(0.6),
-                    blurRadius: 40,
-                    spreadRadius: 10,
+                            ? Colors.redAccent.withOpacity(0.6)
+                            : Colors.blueAccent.withOpacity(0.6),
+                    blurRadius: 20,
+                    spreadRadius: 5,
                   )
                 ],
               ),
