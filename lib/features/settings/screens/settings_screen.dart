@@ -322,20 +322,24 @@ class SettingsScreen extends StatelessWidget {
     if (channelsProvider.myChannels.isEmpty) await channelsProvider.loadMyChannels();
 
     String currentPhrase = emergency.keyPhrase;
-    String? currentTargetId;
-    if (emergency.targetId != null) {
-      currentTargetId = emergency.isGroupTarget ? 'G_${emergency.targetId}' : 'C_${emergency.targetId}';
-    }
-    bool currentIsGroup = emergency.isGroupTarget;
+    final Set<String> currentTargetIds = Set.from(emergency.targetIds);
+    
+    // Lista de id posibles (Contactos y Grupos)
+    final allContactsIds = contactsProvider.contacts.map((c) => 'C_${c.contactId}').toList();
+    final allGroupsIds = channelsProvider.myChannels.map((g) => 'G_${g.id}').toList();
+    final allPossibleIds = [...allContactsIds, ...allGroupsIds];
 
     showDialog(
       context: context,
       builder: (ctx) {
         return StatefulBuilder(
           builder: (context, setState) {
+            final isAllSelected = currentTargetIds.length == allPossibleIds.length && allPossibleIds.isNotEmpty;
+
             return AlertDialog(
               title: const Text('Configuración de Emergencia'),
-              content: SingleChildScrollView(
+              content: SizedBox(
+                width: double.maxFinite,
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
@@ -345,33 +349,68 @@ class SettingsScreen extends StatelessWidget {
                       onChanged: (val) => currentPhrase = val,
                     ),
                     const SizedBox(height: 16),
-                    const Text('Destinatario de la alerta:', style: TextStyle(fontWeight: FontWeight.bold)),
-                    DropdownButton<String>(
-                      isExpanded: true,
-                      hint: const Text('Selecciona un contacto o grupo'),
-                      value: currentTargetId,
-                      items: [
-                        const DropdownMenuItem<String>(
-                          value: null,
-                          child: Text('Ninguno (Desactivado)'),
-                        ),
-                        ...contactsProvider.contacts.map((c) => DropdownMenuItem(
-                          value: 'C_${c.contactId}',
-                          child: Text('👤 ${c.alias} / ${c.name}'),
-                        )),
-                        ...channelsProvider.myChannels.map((c) => DropdownMenuItem(
-                          value: 'G_${c.id}',
-                          child: Text('👥 ${c.name}'),
-                        )),
-                      ],
+                    const Text('Destinatarios de la alerta:', style: TextStyle(fontWeight: FontWeight.bold)),
+                    CheckboxListTile(
+                      title: const Text('Seleccionar todos', style: TextStyle(fontWeight: FontWeight.bold)),
+                      value: isAllSelected,
                       onChanged: (val) {
                         setState(() {
-                          currentTargetId = val;
-                          if (val != null) {
-                            currentIsGroup = val.startsWith('G_');
+                          if (val == true) {
+                            currentTargetIds.addAll(allPossibleIds);
+                          } else {
+                            currentTargetIds.clear();
                           }
                         });
                       },
+                      dense: true,
+                    ),
+                    const Divider(),
+                    Flexible(
+                      child: ListView(
+                        shrinkWrap: true,
+                        children: [
+                          if (contactsProvider.contacts.isNotEmpty) ...[
+                            const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 8.0, horizontal: 16.0),
+                              child: Text('Contactos', style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold)),
+                            ),
+                            ...contactsProvider.contacts.map((c) {
+                              final id = 'C_${c.contactId}';
+                              return CheckboxListTile(
+                                title: Text('👤 ${c.alias} / ${c.name}'),
+                                value: currentTargetIds.contains(id),
+                                onChanged: (val) {
+                                  setState(() {
+                                    if (val == true) currentTargetIds.add(id);
+                                    else currentTargetIds.remove(id);
+                                  });
+                                },
+                                dense: true,
+                              );
+                            }),
+                          ],
+                          if (channelsProvider.myChannels.isNotEmpty) ...[
+                            const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 8.0, horizontal: 16.0),
+                              child: Text('Grupos', style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold)),
+                            ),
+                            ...channelsProvider.myChannels.map((g) {
+                              final id = 'G_${g.id}';
+                              return CheckboxListTile(
+                                title: Text('👥 ${g.name}'),
+                                value: currentTargetIds.contains(id),
+                                onChanged: (val) {
+                                  setState(() {
+                                    if (val == true) currentTargetIds.add(id);
+                                    else currentTargetIds.remove(id);
+                                  });
+                                },
+                                dense: true,
+                              );
+                            }),
+                          ],
+                        ]
+                      ),
                     ),
                   ],
                 ),
@@ -380,11 +419,7 @@ class SettingsScreen extends StatelessWidget {
                 TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
                 ElevatedButton(
                   onPressed: () {
-                    String? finalTarget = currentTargetId;
-                    if (finalTarget != null) {
-                      finalTarget = finalTarget.substring(2); // Quitar prefijo C_ o G_
-                    }
-                    emergency.saveSettings(currentPhrase, finalTarget, currentIsGroup);
+                    emergency.saveSettings(currentPhrase, currentTargetIds.toList());
                     Navigator.pop(ctx);
                   },
                   child: const Text('Guardar'),

@@ -313,9 +313,11 @@ class _CallScreenState extends State<CallScreen> {
       await _saveAudioHistory(map); 
     });
 
-    _socket.onTalkError((data) {
+    _socket.onTalkError((data) async {
       if (!mounted) return;
-      setState(() => _isTalking = false);
+      // Detenemos activamente WebRTC y la grabación pendiente (así se libera el loop y _isTalking pasa a false)
+      await _stopTalking(cancel: true);
+      
       final msg = data is Map ? data['message'] : data[0]['message'];
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text(msg ?? 'No puedes hablar en este momento.'),

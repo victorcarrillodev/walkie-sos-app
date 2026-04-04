@@ -15,13 +15,11 @@ class EmergencyService extends ChangeNotifier {
   String _lastWords = '';
 
   String _keyPhrase = 'ayuda por favor'; // Frase por defecto
-  String? _targetId; 
-  bool _isGroupTarget = false;
+  List<String> _targetIds = []; 
 
   bool get isListening => _isListening;
   String get keyPhrase => _keyPhrase;
-  String? get targetId => _targetId;
-  bool get isGroupTarget => _isGroupTarget;
+  List<String> get targetIds => _targetIds;
 
   Future<void> init() async {
     _speechEnabled = await _speechToText.initialize(
@@ -47,24 +45,36 @@ class EmergencyService extends ChangeNotifier {
   Future<void> loadSettings() async {
     final prefs = await SharedPreferences.getInstance();
     _keyPhrase = prefs.getString('emergency_key_phrase') ?? 'ayuda por favor';
-    _targetId = prefs.getString('emergency_target_id');
-    _isGroupTarget = prefs.getBool('emergency_is_group') ?? false;
+    
+    // Migración o carga de la nueva lista
+    final list = prefs.getStringList('emergency_target_ids');
+    if (list != null) {
+      _targetIds = list;
+    } else {
+      // Migración del sistema viejo al nuevo (retrocompatibilidad)
+      final oldId = prefs.getString('emergency_target_id');
+      final isGroup = prefs.getBool('emergency_is_group') ?? false;
+      if (oldId != null) {
+        _targetIds = [isGroup ? 'G_$oldId' : 'C_$oldId'];
+        // Guardamos ya en el formato nuevo para futuras cargas
+        await prefs.setStringList('emergency_target_ids', _targetIds);
+        await prefs.remove('emergency_target_id');
+        await prefs.remove('emergency_is_group');
+      } else {
+        _targetIds = [];
+      }
+    }
+    
     notifyListeners();
   }
 
-  Future<void> saveSettings(String phrase, String? targetId, bool isGroup) async {
+  Future<void> saveSettings(String phrase, List<String> targetIds) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('emergency_key_phrase', phrase);
-    if (targetId != null) {
-      await prefs.setString('emergency_target_id', targetId);
-    } else {
-      await prefs.remove('emergency_target_id');
-    }
-    await prefs.setBool('emergency_is_group', isGroup);
+    await prefs.setStringList('emergency_target_ids', targetIds);
     
     _keyPhrase = phrase;
-    _targetId = targetId;
-    _isGroupTarget = isGroup;
+    _targetIds = targetIds;
     notifyListeners();
   }
 
@@ -126,18 +136,22 @@ class EmergencyService extends ChangeNotifier {
       debugPrint("Error getting location: $e");
     }
 
-    if (_targetId != null && SocketService().isConnected) {
-       final payload = {
-         'channelId': _targetId,
-         'isGroup': _isGroupTarget,
-         'lat': position?.latitude ?? 0.0,
-         'lng': position?.longitude ?? 0.0,
-         'type': 'PANIC',
-       };
-       SocketService().socket?.emit('send-alert', payload);
-       debugPrint("EMERGENCY ALERT SENT: $payload");
+    if (_targetIds.isNotEmpty && SocketService().isConnected) {
+       for (final target in _targetIds) {
+           final isGroup = target.startsWith('G_');
+           final id = target.substring(2);
+           final payload = {
+             'channelId': id,
+             'isGroup': isGroup,
+             'lat': position?.latitude ?? 0.0,
+             'lng': position?.longitude ?? 0.0,
+             'type': 'PANIC',
+           };
+           SocketService().socket?.emit('send-alert', payload);
+           debugPrint("EMERGENCY ALERT SENT: $payload");
+       }
     } else {
-       debugPrint("Could not send emergency alert. TargetId: $_targetId, Socket Connected: ${SocketService().isConnected}");
+       debugPrint("Could not send emergency alert. TargetIds count: ${_targetIds.length}, Socket Connected: ${SocketService().isConnected}");
     }
 
     // Reiniciamos la escucha después de unos segundos
