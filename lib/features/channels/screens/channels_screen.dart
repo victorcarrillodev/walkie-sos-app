@@ -93,6 +93,7 @@ class _ChannelsScreenState extends State<ChannelsScreen>
               Navigator.pop(context);
               await context.read<ChannelProvider>().createChannel(
                     nameCtrl.text.trim(),
+                    'dummy',
                     description: descCtrl.text.trim(),
                   );
             },
@@ -131,7 +132,7 @@ class _ChannelsScreenState extends State<ChannelsScreen>
               Navigator.pop(context);
               final ok = await context
                   .read<ChannelProvider>()
-                  .joinChannel(nameCtrl.text.trim());
+                  .joinChannel(nameCtrl.text.trim(), 'dummy');
               if (!ok && mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(content: Text('No se encontró el canal')),
@@ -254,7 +255,7 @@ class _ChannelsScreenState extends State<ChannelsScreen>
           CircleAvatar(
             backgroundColor: isDark ? const Color(0xFF1A1A1A) : Colors.grey.shade300,
             child: Icon(
-              channel.isPrivate ? Icons.lock : Icons.radio,
+              Icons.radio,
               color: Theme.of(context).colorScheme.primary,
             ),
           ),

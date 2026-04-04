@@ -216,6 +216,74 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
     );
   }
 
+  void _showEditSettingsDialog() {
+    final pwdCtrl = TextEditingController();
+    double durationVal = widget.channel.maxMessageDuration.toDouble();
+    if (durationVal < 5) durationVal = 5;
+    if (durationVal > 60) durationVal = 60;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    showDialog(
+      context: context, 
+      builder: (_) => StatefulBuilder(
+        builder: (ctx, setDlg) => AlertDialog(
+          backgroundColor: isDark ? const Color(0xFF1A1A1A) : Colors.white,
+          title: Text('Ajustes del grupo', style: TextStyle(color: isDark ? Colors.white : Colors.black87)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: pwdCtrl,
+                style: TextStyle(color: isDark ? Colors.white : Colors.black87),
+                decoration: const InputDecoration(
+                  labelText: 'Nueva contraseña (opcional)',
+                  labelStyle: TextStyle(color: Colors.grey),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text('Duración máx. mensajes: ${durationVal.toInt()}s', style: TextStyle(color: isDark ? Colors.white : Colors.black87)),
+              Slider(
+                value: durationVal,
+                min: 5,
+                max: 60,
+                divisions: 11, // Saltos de 5 segundos
+                activeColor: Theme.of(context).colorScheme.primary,
+                onChanged: (v) => setDlg(() => durationVal = v),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx), 
+              child: const Text('Cancelar', style: TextStyle(color: Colors.grey))
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.primary),
+              onPressed: () async {
+                Navigator.pop(ctx);
+                final pwd = pwdCtrl.text.trim();
+                final ok = await context.read<ChannelProvider>().updateChannelSettings(
+                  widget.channel.id, 
+                  password: pwd.isNotEmpty ? pwd : null,
+                  maxMessageDuration: durationVal.toInt(),
+                );
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(ok ? 'Ajustes actualizados con éxito' : 'Error al actualizar'),
+                      backgroundColor: ok ? Colors.green : Colors.red,
+                    )
+                  );
+                }
+              },
+              child: const Text('Guardar', style: TextStyle(color: Colors.black)),
+            )
+          ]
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
@@ -243,6 +311,13 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
               secondary: const Icon(Icons.volume_off),
               activeThumbColor: Theme.of(context).colorScheme.primary,
               onChanged: _toggleMute,
+            ),
+            ListTile(
+              leading: const Icon(Icons.settings),
+              title: const Text('Configuración avanzada', style: TextStyle(fontWeight: FontWeight.bold)),
+              subtitle: const Text('Cambiar contraseña y duración de audio.'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: _showEditSettingsDialog,
             ),
             const Divider(),
           ],

@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 import 'dart:math';
-
+import 'dart:async';
 import 'dart:isolate';
 import 'dart:ui';
 
@@ -58,6 +58,7 @@ class _CallScreenState extends State<CallScreen> {
   bool _isTalking = false;
   bool _isConnected = false;
   bool _isInitializing = true;
+  Timer? _maxDurationTimer;
   String? _whoIsTalking;
   String? _initError;
   List<MessageModel> _messages = [];
@@ -330,6 +331,14 @@ class _CallScreenState extends State<CallScreen> {
     if (_isTalking || _whoIsTalking != null) return; 
 
     setState(() => _isTalking = true);
+
+    // Iniciar timer para cortar cuando se exceda el tiempo
+    final maxSecs = widget.channel.maxMessageDuration;
+    _maxDurationTimer = Timer(Duration(seconds: maxSecs), () {
+      if (_isTalking && mounted) {
+        _stopTalking(); 
+      }
+    });
     
     // Pausar reproducción para que el micrófono no capture el altavoz
     await _player.pause();
@@ -364,6 +373,8 @@ class _CallScreenState extends State<CallScreen> {
 
   Future<void> _stopTalking({bool cancel = false}) async {
     if (!_isTalking) return;
+    _maxDurationTimer?.cancel();
+    _maxDurationTimer = null;
     setState(() => _isTalking = false);
     
     await _webRTCService.stopTalking();

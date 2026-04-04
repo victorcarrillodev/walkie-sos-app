@@ -72,19 +72,21 @@ class ApiService {
 
   Future<Map<String, dynamic>> createChannel({
     required String name,
+    required String password,
     String? description,
-    bool isPrivate = false,
+    int maxMessageDuration = 60,
   }) async {
     final response = await _dio.post('/channels', data: {
       'name': name,
-      'description': ?description,
-      'isPrivate': isPrivate,
+      'password': password,
+      'description': description,
+      'maxMessageDuration': maxMessageDuration,
     });
     return response.data;
   }
 
-  Future<Map<String, dynamic>> joinChannelByName(String name) async {
-    final response = await _dio.post('/channels/join', data: {'name': name});
+  Future<Map<String, dynamic>> joinChannelByName(String name, String password) async {
+    final response = await _dio.post('/channels/join', data: {'name': name, 'password': password});
     return response.data;
   }
 
@@ -114,7 +116,7 @@ class ApiService {
 
     // Paso 2: Intentar unirse
     try {
-      await _dio.post('/channels/join', data: {'name': channelName});
+      await _dio.post('/channels/join', data: {'name': channelName, 'password': 'direct-mode-password'});
       debugPrint('✅ Me uní al canal existente');
       final myChannels = await _dio.get('/channels/mine');
       final List channels = myChannels.data;
@@ -141,8 +143,9 @@ class ApiService {
     debugPrint('📡 Creando canal directo nuevo: $channelName');
     final response = await _dio.post('/channels', data: {
       'name': channelName,
-      'isPrivate': false,
+      'password': 'direct-mode-password',
       'description': 'Canal directo',
+      'maxMessageDuration': 60,
     });
     return response.data;
   }
@@ -167,6 +170,14 @@ class ApiService {
 
   Future<void> deleteChannel(String channelId) async {
     await _dio.delete('/channels/$channelId');
+  }
+
+  Future<Map<String, dynamic>> updateChannelSettings(String channelId, {String? password, int? maxMessageDuration}) async {
+    final response = await _dio.patch('/channels/$channelId/settings', data: {
+      if (password != null) 'password': password,
+      if (maxMessageDuration != null) 'maxMessageDuration': maxMessageDuration,
+    });
+    return response.data;
   }
 
   // CONTACTOS

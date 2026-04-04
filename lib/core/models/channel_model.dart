@@ -2,7 +2,7 @@ class ChannelModel {
   final String id;
   final String name;
   final String? description;
-  final bool isPrivate;
+  final int maxMessageDuration;
   final bool isGroup;
   final int? memberCount;
 
@@ -10,7 +10,7 @@ class ChannelModel {
     required this.id,
     required this.name,
     this.description,
-    required this.isPrivate,
+    required this.maxMessageDuration,
     required this.isGroup,
     this.memberCount,
   });
@@ -20,7 +20,7 @@ class ChannelModel {
       id: json['id'],
       name: json['name'],
       description: json['description'],
-      isPrivate: json['isPrivate'] ?? false,
+      maxMessageDuration: json['maxMessageDuration'] ?? 60,
       isGroup: json['isGroup'] ?? true,
       memberCount: json['_count']?['members'],
     );

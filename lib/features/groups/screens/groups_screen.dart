@@ -15,24 +15,13 @@ class GroupsScreen extends StatefulWidget {
   State<GroupsScreen> createState() => _GroupsScreenState();
 }
 
-class _GroupsScreenState extends State<GroupsScreen>
-    with SingleTickerProviderStateMixin {
-  late TabController _tabController;
-
+class _GroupsScreenState extends State<GroupsScreen> {
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       await context.read<ChannelProvider>().loadMyChannels();
-      await context.read<ChannelProvider>().loadPublicChannels();
     });
-  }
-
-  @override
-  void dispose() {
-    _tabController.dispose();
-    super.dispose();
   }
 
   // Solo canales grupales (isGroup: true y nombre no empieza con "direct_")
@@ -42,10 +31,12 @@ class _GroupsScreenState extends State<GroupsScreen>
         .toList();
   }
 
-  void _showCreateDialog() {
+  void _showJoinOrCreateDialog() {
     final nameCtrl = TextEditingController();
+    final pwdCtrl = TextEditingController();
     final descCtrl = TextEditingController();
-    bool isPrivate = false;
+    double durationVal = 60.0;
+    
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     showDialog(
@@ -53,44 +44,69 @@ class _GroupsScreenState extends State<GroupsScreen>
       builder: (_) => StatefulBuilder(
         builder: (ctx, setDlg) => AlertDialog(
           backgroundColor: isDark ? const Color(0xFF1A1A1A) : Colors.white,
-          title: Text('Nuevo Grupo',
-              style: TextStyle(color: isDark ? Colors.white : Colors.black87)),
+          title: Text('Crear o Unirse a un Grupo',
+              style: TextStyle(color: isDark ? Colors.white : Colors.black87, fontSize: 18, fontWeight: FontWeight.bold)),
           content: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-              TextField(
-                controller: nameCtrl,
-                autofocus: true,
-                style: TextStyle(color: isDark ? Colors.white : Colors.black87),
-                decoration: const InputDecoration(
-                  labelText: 'Nombre del grupo',
-                  labelStyle: TextStyle(color: Colors.grey),
-                  prefixIcon: Icon(Icons.group, color: Colors.grey),
+                const Text('Si el grupo existe, ingresarás usando la contraseña. Si no existe, se creará.', 
+                  style: TextStyle(color: Colors.grey, fontSize: 13)),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: nameCtrl,
+                  autofocus: true,
+                  style: TextStyle(color: isDark ? Colors.white : Colors.black87),
+                  decoration: const InputDecoration(
+                    labelText: 'Nombre del grupo (Obligatorio)',
+                    labelStyle: TextStyle(color: Colors.grey),
+                    prefixIcon: Icon(Icons.group, color: Colors.grey),
+                  ),
                 ),
-              ),
-              const SizedBox(height: 8),
-              TextField(
-                controller: descCtrl,
-                style: TextStyle(color: isDark ? Colors.white : Colors.black87),
-                decoration: const InputDecoration(
-                  labelText: 'Descripción (opcional)',
-                  labelStyle: TextStyle(color: Colors.grey),
-                  prefixIcon: Icon(Icons.description_outlined, color: Colors.grey),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: pwdCtrl,
+                  obscureText: true,
+                  style: TextStyle(color: isDark ? Colors.white : Colors.black87),
+                  decoration: const InputDecoration(
+                    labelText: 'Contraseña (Obligatorio)',
+                    labelStyle: TextStyle(color: Colors.grey),
+                    prefixIcon: Icon(Icons.lock, color: Colors.grey),
+                  ),
                 ),
-              ),
-              const SizedBox(height: 12),
-              SwitchListTile.adaptive(
-                title: Text('Grupo privado',
-                    style: TextStyle(color: isDark ? Colors.white : Colors.black87, fontSize: 14)),
-                subtitle: const Text('Solo por invitación', style: TextStyle(color: Colors.grey, fontSize: 12)),
-                contentPadding: EdgeInsets.zero,
-                value: isPrivate,
-                activeColor: Theme.of(context).colorScheme.primary,
-                onChanged: (v) => setDlg(() => isPrivate = v),
-              ),
-            ],
-          ),
+                const SizedBox(height: 16),
+                const Divider(),
+                const Text('Opciones (solo si se crea el grupo)', 
+                  style: TextStyle(color: Colors.grey, fontSize: 12, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: descCtrl,
+                  style: TextStyle(color: isDark ? Colors.white : Colors.black87),
+                  decoration: const InputDecoration(
+                    labelText: 'Descripción',
+                    labelStyle: TextStyle(color: Colors.grey),
+                    prefixIcon: Icon(Icons.description_outlined, color: Colors.grey),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    const Icon(Icons.timer, color: Colors.grey, size: 20),
+                    const SizedBox(width: 8),
+                    Text('Duración máx. mensajes: ${durationVal.toInt()}s',
+                      style: TextStyle(color: isDark ? Colors.white : Colors.black87, fontSize: 13)),
+                  ],
+                ),
+                Slider(
+                  value: durationVal,
+                  min: 5,
+                  max: 60,
+                  divisions: 11, // Saltos de 5 segundos
+                  activeColor: Theme.of(context).colorScheme.primary,
+                  onChanged: (val) => setDlg(() => durationVal = val),
+                ),
+              ],
+            ),
           ),
           actions: [
             TextButton(
@@ -100,81 +116,38 @@ class _GroupsScreenState extends State<GroupsScreen>
             ElevatedButton.icon(
               style: ElevatedButton.styleFrom(
                   backgroundColor: Theme.of(context).colorScheme.primary),
-              icon: const Icon(Icons.group_add, color: Colors.black, size: 18),
+              icon: const Icon(Icons.login, color: Colors.black, size: 18),
               onPressed: () async {
-                if (nameCtrl.text.trim().isEmpty) return;
+                final name = nameCtrl.text.trim();
+                final password = pwdCtrl.text.trim();
+                if (name.isEmpty || password.isEmpty) {
+                  ScaffoldMessenger.of(ctx).showSnackBar(
+                    const SnackBar(content: Text('El nombre y contraseña son requeridos.'), backgroundColor: Colors.red),
+                  );
+                  return;
+                }
+                
                 Navigator.pop(ctx);
-                final ok = await context.read<ChannelProvider>().createChannel(
-                  nameCtrl.text.trim(),
+                final ok = await context.read<ChannelProvider>().joinOrCreateGroup(
+                  name,
+                  password,
                   description: descCtrl.text.trim().isEmpty ? null : descCtrl.text.trim(),
+                  maxMessageDuration: durationVal.toInt(),
                 );
+                
                 if (!ok && mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
-                      content: Text(context.read<ChannelProvider>().error ?? 'Error al crear grupo'),
+                      content: Text(context.read<ChannelProvider>().error ?? 'No se pudo acceder o crear el grupo.'),
                       backgroundColor: Colors.red,
                     ),
                   );
                 }
               },
-              label: const Text('Crear', style: TextStyle(color: Colors.black)),
+              label: const Text('Aceptar', style: TextStyle(color: Colors.black)),
             ),
           ],
         ),
-      ),
-    );
-  }
-
-  void _showJoinDialog() {
-    final nameCtrl = TextEditingController();
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    showDialog(
-      context: context,
-      builder: (_) => AlertDialog(
-        backgroundColor: isDark ? const Color(0xFF1A1A1A) : Colors.white,
-        title: Text('Unirse a Grupo',
-            style: TextStyle(color: isDark ? Colors.white : Colors.black87)),
-        content: SingleChildScrollView(
-          child: TextField(
-            controller: nameCtrl,
-            autofocus: true,
-            style: TextStyle(color: isDark ? Colors.white : Colors.black87),
-            decoration: const InputDecoration(
-              labelText: 'Nombre exacto del grupo',
-              labelStyle: TextStyle(color: Colors.grey),
-              prefixIcon: Icon(Icons.search, color: Colors.grey),
-            ),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancelar', style: TextStyle(color: Colors.grey)),
-          ),
-          ElevatedButton.icon(
-            style: ElevatedButton.styleFrom(
-                backgroundColor: Theme.of(context).colorScheme.primary),
-            icon: const Icon(Icons.login, color: Colors.black, size: 18),
-            onPressed: () async {
-              if (nameCtrl.text.trim().isEmpty) return;
-              Navigator.pop(context);
-              final ok = await context
-                  .read<ChannelProvider>()
-                  .joinChannel(nameCtrl.text.trim());
-              if (mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                  content: Text(ok
-                      ? '¡Te uniste al grupo!'
-                      : context.read<ChannelProvider>().error ?? 'No se encontró el grupo'),
-                  backgroundColor: ok
-                      ? Theme.of(context).colorScheme.primary
-                      : Colors.red,
-                ));
-              }
-            },
-            label: const Text('Unirse', style: TextStyle(color: Colors.black)),
-          ),
-        ],
       ),
     );
   }
@@ -191,14 +164,13 @@ class _GroupsScreenState extends State<GroupsScreen>
     final auth = context.read<AuthProvider>();
     final channels = context.watch<ChannelProvider>();
     final myGroups = _filterGroups(channels.myChannels);
-    final publicGroups = _filterGroups(channels.publicChannels);
 
     return Scaffold(
       appBar: AppBar(
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Grupos',
+            const Text('Mis Grupos',
                 style: TextStyle(
                     fontSize: 22,
                     fontWeight: FontWeight.bold)),
@@ -217,80 +189,35 @@ class _GroupsScreenState extends State<GroupsScreen>
             },
           ),
         ],
-        bottom: TabBar(
-          controller: _tabController,
-          indicatorColor: Theme.of(context).colorScheme.primary,
-          labelColor: Theme.of(context).colorScheme.primary,
-          unselectedLabelColor: Colors.grey,
-          tabs: const [
-            Tab(text: 'Mis Grupos'),
-            Tab(text: 'Explorar'),
-          ],
+      ),
+      body: channels.isLoading
+          ? Center(
+              child: CircularProgressIndicator(
+                  color: Theme.of(context).colorScheme.primary))
+          : myGroups.isEmpty
+              ? _emptyState(
+                  'No perteneces a ningún grupo',
+                  'Crea uno nuevo o únete a uno existente',
+                )
+              : ListView.builder(
+                  itemCount: myGroups.length,
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  itemBuilder: (_, i) => _groupTile(myGroups[i]),
+                ),
+      floatingActionButton: Container(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(28),
+          gradient: context.watch<ThemeProvider>().primaryGradient,
         ),
-      ),
-      body: TabBarView(
-        controller: _tabController,
-        children: [
-          // TAB 1: MIS GRUPOS
-          channels.isLoading
-              ? Center(
-                  child: CircularProgressIndicator(
-                      color: Theme.of(context).colorScheme.primary))
-              : myGroups.isEmpty
-                  ? _emptyState(
-                      'No perteneces a ningún grupo',
-                      'Crea uno nuevo o únete a uno existente',
-                    )
-                  : ListView.builder(
-                      itemCount: myGroups.length,
-                      padding: const EdgeInsets.symmetric(vertical: 8),
-                      itemBuilder: (_, i) => _groupTile(myGroups[i]),
-                    ),
-
-          // TAB 2: EXPLORAR
-          channels.isLoading
-              ? Center(
-                  child: CircularProgressIndicator(
-                      color: Theme.of(context).colorScheme.primary))
-              : publicGroups.isEmpty
-                  ? _emptyState(
-                      'No hay grupos públicos',
-                      'Sé el primero en crear uno',
-                    )
-                  : ListView.builder(
-                      itemCount: publicGroups.length,
-                      padding: const EdgeInsets.symmetric(vertical: 8),
-                      itemBuilder: (_, i) => _groupTile(publicGroups[i]),
-                    ),
-        ],
-      ),
-      floatingActionButton: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          FloatingActionButton.extended(
-            heroTag: 'join_group',
-            onPressed: _showJoinDialog,
-            backgroundColor: const Color(0xFF1A1A1A),
-            icon: const Icon(Icons.search, color: Colors.white, size: 18),
-            label: const Text('Unirse', style: TextStyle(color: Colors.white)),
-          ),
-          const SizedBox(height: 10),
-          Container(
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(28),
-              gradient: context.watch<ThemeProvider>().primaryGradient,
-            ),
-            child: FloatingActionButton.extended(
-              heroTag: 'create_group',
-              onPressed: _showCreateDialog,
-              backgroundColor: context.watch<ThemeProvider>().primaryGradient == null ? Theme.of(context).colorScheme.primary : Colors.transparent,
-              elevation: context.watch<ThemeProvider>().primaryGradient == null ? null : 0,
-              icon: const Icon(Icons.group_add, color: Colors.white, size: 18),
-              label: const Text('Crear grupo',
-                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-            ),
-          ),
-        ],
+        child: FloatingActionButton.extended(
+          heroTag: 'join_or_create_group',
+          onPressed: _showJoinOrCreateDialog,
+          backgroundColor: context.watch<ThemeProvider>().primaryGradient == null ? Theme.of(context).colorScheme.primary : Colors.transparent,
+          elevation: context.watch<ThemeProvider>().primaryGradient == null ? null : 0,
+          icon: const Icon(Icons.group_add, color: Colors.white, size: 18),
+          label: const Text('Crear/Unirse',
+              style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        ),
       ),
     );
   }
@@ -304,7 +231,7 @@ class _GroupsScreenState extends State<GroupsScreen>
         radius: 24,
         backgroundColor: isDark ? const Color(0xFF1A1A1A) : Colors.grey.shade300,
         child: Icon(
-          group.isPrivate ? Icons.lock : Icons.group,
+          Icons.lock,
           color: Theme.of(context).colorScheme.primary,
         ),
       ),
@@ -350,27 +277,13 @@ class _GroupsScreenState extends State<GroupsScreen>
               style: const TextStyle(color: Colors.grey, fontSize: 13),
               textAlign: TextAlign.center),
           const SizedBox(height: 28),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              OutlinedButton.icon(
-                onPressed: _showJoinDialog,
-                icon: const Icon(Icons.search, size: 16),
-                label: const Text('Unirse'),
-                style: OutlinedButton.styleFrom(
-                    foregroundColor: Theme.of(context).colorScheme.primary,
-                    side: BorderSide(color: Theme.of(context).colorScheme.primary)),
-              ),
-              const SizedBox(width: 12),
-              ElevatedButton.icon(
-                onPressed: _showCreateDialog,
-                icon: const Icon(Icons.group_add, size: 16, color: Colors.black),
-                label: const Text('Crear grupo',
-                    style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
-                style: ElevatedButton.styleFrom(
-                    backgroundColor: Theme.of(context).colorScheme.primary),
-              ),
-            ],
+          ElevatedButton.icon(
+            onPressed: _showJoinOrCreateDialog,
+            icon: const Icon(Icons.group_add, size: 16, color: Colors.black),
+            label: const Text('Comenzar',
+                style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+            style: ElevatedButton.styleFrom(
+                backgroundColor: Theme.of(context).colorScheme.primary),
           ),
         ],
       ),

@@ -15,6 +15,8 @@ import 'features/recents/screens/recents_screen.dart';
 import 'core/services/bubble_service.dart';
 import 'core/services/emergency_service.dart';
 import 'core/widgets/global_emergency_overlay.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'package:flutter_overlay_window/flutter_overlay_window.dart';
 
 @pragma("vm:entry-point")
 void overlayMain() {
@@ -152,12 +154,28 @@ class _AppRootState extends State<AppRoot> {
   @override
   void initState() {
     super.initState();
-    _checkSession();
+    _initialize();
   }
 
-  Future<void> _checkSession() async {
+  Future<void> _initialize() async {
+    // 1. Continuar y checar sesión primero para no bloquear la pantalla de carga
     await context.read<AuthProvider>().tryAutoLogin();
     if (mounted) setState(() => _checked = true);
+
+    // 2. Pedir permisos principales
+    try {
+      await [
+        Permission.microphone,
+        Permission.location,
+        Permission.notification,
+      ].request();
+
+      // 3. Pedir permiso de superposición si falta (sin await para no congelar la UI)
+      final isOverlayGranted = await FlutterOverlayWindow.isPermissionGranted();
+      if (isOverlayGranted == false) {
+        FlutterOverlayWindow.requestPermission();
+      }
+    } catch (_) {}
   }
 
   @override

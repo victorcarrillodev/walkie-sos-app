@@ -43,28 +43,65 @@ class ChannelProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<bool> createChannel(String name, {String? description}) async {
+  Future<bool> createChannel(String name, String password, {String? description, int maxMessageDuration = 60}) async {
     try {
-      final data = await _api.createChannel(name: name, description: description);
+      final data = await _api.createChannel(name: name, password: password, description: description, maxMessageDuration: maxMessageDuration);
       _myChannels.insert(0, ChannelModel.fromJson(data));
       notifyListeners();
       return true;
     } catch (e) {
-      _error = 'Error al crear canal';
+      _error = 'Error al crear grupo';
       notifyListeners();
       return false;
     }
   }
 
-  Future<bool> joinChannel(String name) async {
+  Future<bool> joinChannel(String name, String password) async {
     try {
-      await _api.joinChannelByName(name);
+      await _api.joinChannelByName(name, password);
       await loadMyChannels();
       return true;
     } catch (e) {
-      _error = 'No se pudo unir al canal';
+      _error = 'Contraseña incorrecta o grupo no existe';
       notifyListeners();
       return false;
+    }
+  }
+
+  /// NUEVO MËTODO: Intenta unirse, si no existe lo crea.
+  Future<bool> joinOrCreateGroup(String name, String password, {String? description, int maxMessageDuration = 60}) async {
+    _isLoading = true;
+    notifyListeners();
+
+    try {
+      // 1. Intentamos unirnos
+      await _api.joinChannelByName(name, password);
+      await loadMyChannels();
+      _isLoading = false;
+      notifyListeners();
+      return true;
+    } catch (e) {
+      // 2. Si falla, asumimos que no existe o la contra es mala.
+      // Si la contra es mala del grupo existente, podría fallar si intentamos crearlo y el backend dice "ya existe".
+      // Lo creamos.
+      try {
+        final data = await _api.createChannel(
+          name: name,
+          password: password,
+          description: description,
+          maxMessageDuration: maxMessageDuration,
+        );
+        _myChannels.insert(0, ChannelModel.fromJson(data));
+        _isLoading = false;
+        notifyListeners();
+        return true;
+      } catch (creationError) {
+        // Falló al crearlo, probablemente ya existe pero la contraseña era incorrecta, o hubo otro error.
+        _error = 'Contraseña incorrecta o nombre no disponible';
+        _isLoading = false;
+        notifyListeners();
+        return false;
+      }
     }
   }
 
@@ -116,6 +153,16 @@ class ChannelProvider extends ChangeNotifier {
       return true;
     } catch (e) {
       _error = 'Error al eliminar el grupo';
+      return false;
+    }
+  }
+
+  Future<bool> updateChannelSettings(String channelId, {String? password, int? maxMessageDuration}) async {
+    try {
+      await _api.updateChannelSettings(channelId, password: password, maxMessageDuration: maxMessageDuration);
+      return true;
+    } catch (e) {
+      _error = 'Error al actualizar grupo';
       return false;
     }
   }

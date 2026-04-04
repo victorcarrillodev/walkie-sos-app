@@ -106,7 +106,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
         id: channelData['id'] ?? '',
         name: contact.name,
         description: 'Chat directo con @${contact.alias}',
-        isPrivate: true,
+        maxMessageDuration: 60,
         isGroup: false,
       );
 
