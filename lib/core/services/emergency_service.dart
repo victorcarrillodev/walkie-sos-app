@@ -1,19 +1,23 @@
 import 'package:flutter/material.dart';
-import 'package:speech_to_text/speech_to_text.dart';
+import 'package:vosk_flutter/vosk_flutter.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'socket_service.dart';
+import 'dart:convert';
 
 class EmergencyService extends ChangeNotifier {
   static final EmergencyService _instance = EmergencyService._internal();
   factory EmergencyService() => _instance;
   EmergencyService._internal();
 
-  final SpeechToText _speechToText = SpeechToText();
+  final VoskFlutterPlugin _vosk = VoskFlutterPlugin.instance();
+  SpeechService? _speechService;
+  Model? _model;
+  Recognizer? _recognizer;
+
   bool _isListening = false;
   bool _speechEnabled = false;
-  String _lastWords = '';
-
+  
   String _keyPhrase = 'ayuda por favor'; // Frase por defecto
   List<String> _targetIds = []; 
 
@@ -22,41 +26,69 @@ class EmergencyService extends ChangeNotifier {
   List<String> get targetIds => _targetIds;
 
   Future<void> init() async {
-    _speechEnabled = await _speechToText.initialize(
-      onError: (val) => debugPrint('SpeechToText onError: $val'),
-      onStatus: (val) {
-        debugPrint('SpeechToText onStatus: $val');
-        if ((val == 'done' || val == 'notListening') && _isListening) {
-           // Reiniciar la escucha si se detiene (ya que la API a veces corta después de silencio)
-           Future.delayed(const Duration(milliseconds: 500), () {
-             if (_isListening && !_speechToText.isListening) {
-               _startListeningInternal();
-             }
-           });
-        }
-      },
-    );
+    try {
+      debugPrint('🎙️ Cargando modelo de rescate Vosk offline...');
+      // Extrae y carga el modelo desde los assets
+      final modelPath = await ModelLoader()
+          .loadFromAssets('assets/models/vosk-model-small-es-0.42.zip');
+      
+      _model = await _vosk.createModel(modelPath);
+      _recognizer = await _vosk.createRecognizer(
+        model: _model!,
+        sampleRate: 16000,
+      );
+
+      _speechService = await _vosk.initSpeechService(_recognizer!);
+      
+      _speechService!.onPartial().listen((e) {
+        // e is usually a JSON string like {"partial": "ayuda"}
+        try {
+          final map = jsonDecode(e);
+          final String partial = map['partial'] ?? '';
+          _checkKeyword(partial);
+        } catch (_) {}
+      });
+
+      _speechService!.onResult().listen((e) {
+        try {
+          final map = jsonDecode(e);
+          final String text = map['text'] ?? '';
+          _checkKeyword(text);
+        } catch (_) {}
+      });
+
+      _speechEnabled = true;
+      debugPrint('🎙️ Vosk model cargado con éxito. Sin ruido.');
+    } catch (e) {
+      debugPrint('❌ Error cargando Vosk: $e');
+    }
+
     await loadSettings();
     if (_speechEnabled) {
       startListening();
     }
   }
 
+  void _checkKeyword(String text) {
+     if (text.isEmpty) return;
+     if (text.toLowerCase().contains(_keyPhrase.trim().toLowerCase())) {
+        debugPrint("🚨 Vosk Phrase detected! text: $text");
+        triggerEmergency();
+     }
+  }
+
   Future<void> loadSettings() async {
     final prefs = await SharedPreferences.getInstance();
     _keyPhrase = prefs.getString('emergency_key_phrase') ?? 'ayuda por favor';
     
-    // Migración o carga de la nueva lista
     final list = prefs.getStringList('emergency_target_ids');
     if (list != null) {
       _targetIds = list;
     } else {
-      // Migración del sistema viejo al nuevo (retrocompatibilidad)
       final oldId = prefs.getString('emergency_target_id');
       final isGroup = prefs.getBool('emergency_is_group') ?? false;
       if (oldId != null) {
         _targetIds = [isGroup ? 'G_$oldId' : 'C_$oldId'];
-        // Guardamos ya en el formato nuevo para futuras cargas
         await prefs.setStringList('emergency_target_ids', _targetIds);
         await prefs.remove('emergency_target_id');
         await prefs.remove('emergency_is_group');
@@ -64,7 +96,6 @@ class EmergencyService extends ChangeNotifier {
         _targetIds = [];
       }
     }
-    
     notifyListeners();
   }
 
@@ -78,44 +109,30 @@ class EmergencyService extends ChangeNotifier {
     notifyListeners();
   }
 
-  void startListening() {
-    if (!_speechEnabled) {
-      debugPrint("Speech recognition not enabled");
-      return;
+  Future<void> startListening() async {
+    if (!_speechEnabled || _speechService == null) return;
+    try {
+      await _speechService!.start();
+      _isListening = true;
+      notifyListeners();
+      debugPrint('✅ Vosk Listening Mode Started');
+    } catch (e) {
+      debugPrint('❌ Vosk Listening Start Error: $e');
     }
-    _isListening = true;
-    _startListeningInternal();
-    notifyListeners();
-  }
-  
-  void _startListeningInternal() async {
-    await _speechToText.listen(
-      onResult: (result) async {
-        _lastWords = result.recognizedWords;
-        debugPrint("Recognized words: $_lastWords");
-        if (_lastWords.toLowerCase().contains(_keyPhrase.trim().toLowerCase())) {
-          debugPrint("Key phrase detected!");
-          await triggerEmergency();
-        }
-      },
-      localeId: 'es_ES', // Forzar español para mayor precisión en la frase
-      cancelOnError: false,
-      partialResults: true,
-      listenMode: ListenMode.dictation,
-      listenFor: const Duration(hours: 24),
-    );
   }
 
-  void stopListening() {
-    _isListening = false;
-    _speechToText.stop();
-    notifyListeners();
+  Future<void> stopListening() async {
+    if (_speechService != null && _isListening) {
+      await _speechService!.stop();
+      _isListening = false;
+      notifyListeners();
+    }
   }
 
   Future<void> triggerEmergency() async {
     debugPrint("EMERGENCY TRIGGERED!");
-    // Detenemos la escucha brevemente para evitar múltiples envíos
-    stopListening();
+    // Pausamos brevemente Vosk para evitar loops de ayuda
+    await stopListening();
     
     Position? position;
     try {
@@ -151,10 +168,10 @@ class EmergencyService extends ChangeNotifier {
            debugPrint("EMERGENCY ALERT SENT: $payload");
        }
     } else {
-       debugPrint("Could not send emergency alert. TargetIds count: ${_targetIds.length}, Socket Connected: ${SocketService().isConnected}");
+       debugPrint("Could not send emergency alert. TargetIds: ${_targetIds.length}, Socket: ${SocketService().isConnected}");
     }
 
-    // Reiniciamos la escucha después de unos segundos
+    // Reiniciamos reconocimiento
     Future.delayed(const Duration(seconds: 5), () {
        startListening();
     });

@@ -381,8 +381,11 @@ class SettingsScreen extends StatelessWidget {
                                 value: currentTargetIds.contains(id),
                                 onChanged: (val) {
                                   setState(() {
-                                    if (val == true) currentTargetIds.add(id);
-                                    else currentTargetIds.remove(id);
+                                    if (val == true) {
+                                      currentTargetIds.add(id);
+                                    } else {
+                                      currentTargetIds.remove(id);
+                                    }
                                   });
                                 },
                                 dense: true,
@@ -401,8 +404,11 @@ class SettingsScreen extends StatelessWidget {
                                 value: currentTargetIds.contains(id),
                                 onChanged: (val) {
                                   setState(() {
-                                    if (val == true) currentTargetIds.add(id);
-                                    else currentTargetIds.remove(id);
+                                    if (val == true) {
+                                      currentTargetIds.add(id);
+                                    } else {
+                                      currentTargetIds.remove(id);
+                                    }
                                   });
                                 },
                                 dense: true,

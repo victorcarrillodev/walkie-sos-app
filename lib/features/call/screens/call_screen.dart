@@ -6,10 +6,8 @@ import 'dart:async';
 import 'dart:isolate';
 import 'dart:ui';
 
-import 'package:audio_session/audio_session.dart';
 import 'package:audioplayers/audioplayers.dart' hide AVAudioSessionCategory;
 import 'package:flutter/material.dart';
-import 'package:flutter_background/flutter_background.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
@@ -25,6 +23,7 @@ import '../../../core/services/database_service.dart';
 import '../../../core/services/socket_service.dart';
 import '../../../core/services/bubble_service.dart';
 import '../../../core/services/webrtc_service.dart';
+import '../../../core/services/emergency_service.dart';
 import '../../groups/screens/group_settings_screen.dart';
 
 class CallScreen extends StatefulWidget {
@@ -287,6 +286,9 @@ class _CallScreenState extends State<CallScreen> {
 
     setState(() => _isTalking = true);
 
+    // Pausar escucha de emergencia temporalmente para liberar el micrófono
+    await EmergencyService().stopListening();
+
     // Iniciar timer para cortar cuando se exceda el tiempo
     final maxSecs = widget.channel.maxMessageDuration;
     _maxDurationTimer = Timer(Duration(seconds: maxSecs), () {
@@ -364,6 +366,9 @@ class _CallScreenState extends State<CallScreen> {
       }
     } catch (e) {
       debugPrint('Error enviando respaldo: $e');
+    } finally {
+      // Reanudar escucha de emergencia
+      await EmergencyService().startListening();
     }
   }
 

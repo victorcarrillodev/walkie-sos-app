@@ -174,8 +174,8 @@ class ApiService {
 
   Future<Map<String, dynamic>> updateChannelSettings(String channelId, {String? password, int? maxMessageDuration}) async {
     final response = await _dio.patch('/channels/$channelId/settings', data: {
-      if (password != null) 'password': password,
-      if (maxMessageDuration != null) 'maxMessageDuration': maxMessageDuration,
+      'password': ?password,
+      'maxMessageDuration': ?maxMessageDuration,
     });
     return response.data;
   }
