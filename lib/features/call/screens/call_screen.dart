@@ -97,12 +97,12 @@ class _CallScreenState extends State<CallScreen> {
     IsolateNameServer.removePortNameMapping(bubblePortName);
     IsolateNameServer.registerPortWithName(_bubbleReceivePort.sendPort, bubblePortName);
     _bubbleReceivePort.listen((message) {
-      if (message == 'start') {
-        _startTalking();
-      } else if (message == 'stop') {
-        _stopTalking();
-      } else if (message == 'stop_cancel') {
-        _stopTalking(cancel: true);
+      if (message == 'toggle') {
+        if (_isTalking) {
+          _stopTalking();
+        } else {
+          _startTalking();
+        }
       }
     });
     _loadEqualizerPref();
@@ -298,6 +298,8 @@ class _CallScreenState extends State<CallScreen> {
     if (_isTalking || vp.whoIsTalking != null) return; 
 
     setState(() => _isTalking = true);
+    // Notificar al overlay que estamos grabando
+    BubbleService().notifyState(true);
 
     // Starto de la p levántola del nivel y se actualizará en un timer
     _amplitudeTimer = Timer.periodic(const Duration(milliseconds: 80), (_) async {
@@ -361,6 +363,8 @@ class _CallScreenState extends State<CallScreen> {
     _amplitudeTimer = null;
     _amplitudeNotifier.value = 0.0;
     setState(() => _isTalking = false);
+    // Notificar al overlay que se detuvo la grabación
+    BubbleService().notifyState(false);
     
     await _webRTCService.stopTalking();
     _socket.sendPttEnd(widget.channel.id);
@@ -397,7 +401,8 @@ class _CallScreenState extends State<CallScreen> {
     } catch (e) {
       debugPrint('Error enviando respaldo: $e');
     } finally {
-      // Reanudar escucha de emergencia
+      // Esperar a que el OS libere el mic antes de reiniciar Vosk
+      await Future.delayed(const Duration(milliseconds: 500));
       await EmergencyService().startListening();
     }
   }

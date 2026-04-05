@@ -6,15 +6,12 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 const String bubblePortName = 'bubble_ptt_port';
 
-// ─── Tamaños en dp ───
-const int _kSmallDp  = 55;
-const int _kMediumDp = 72;
-const int _kLargeDp  = 95;
-
-// Margen extra alrededor del botón para que el glow no se recorte
-const int _kGlowPadding = 20; // dp a cada lado
-// Altura reservada para el texto del canal
-const int _kLabelDp     = 28; // dp
+// ─── Tamaños en dp ───────────────────────────────────────────────────────
+const int _kSmallDp      = 55;
+const int _kMediumDp     = 72;
+const int _kLargeDp      = 95;
+const int _kGlowPadding  = 20;  // margen para el glow, a cada lado
+const int _kLabelDp      = 28;  // altura reservada para el texto del canal
 
 int _dpFromKey(String key) {
   if (key == 'small')  return _kSmallDp;
@@ -22,13 +19,12 @@ int _dpFromKey(String key) {
   return _kMediumDp;
 }
 
-// Ventana nativa = buttonDp + padding doble (izq+der / arriba+abajo)
 int _windowW(int dp) => dp + _kGlowPadding * 2;
 int _windowH(int dp) => dp + _kGlowPadding * 2 + _kLabelDp;
 
-// ─────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────
 // Servicio principal (hilo de la app)
-// ─────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────
 class BubbleService {
   static final BubbleService _instance = BubbleService._internal();
   factory BubbleService() => _instance;
@@ -47,13 +43,11 @@ class BubbleService {
     }
     if (await FlutterOverlayWindow.isActive()) return;
 
-    final prefs = await SharedPreferences.getInstance();
+    final prefs   = await SharedPreferences.getInstance();
     await prefs.reload();
     final sizeKey = prefs.getString('bubble_size') ?? 'medium';
     final sizeDp  = _dpFromKey(sizeKey);
 
-    // Ventana nativa = ancho del botón, alto = botón + label
-    // enableDrag: true → el arrastre lo gestiona Android nativamente sin bloquear la app
     await FlutterOverlayWindow.showOverlay(
       overlayTitle:    'WalkieSOS',
       overlayContent:  'Botón activo',
@@ -65,11 +59,17 @@ class BubbleService {
       enableDrag:      true,
     );
 
-    // Enviar nombre y tamaño al isolate después de que arranque
     await Future.delayed(const Duration(milliseconds: 500));
     await FlutterOverlayWindow.shareData(chatName ?? '');
-    await Future.delayed(const Duration(milliseconds: 150));
+    await Future.delayed(const Duration(milliseconds: 100));
     await FlutterOverlayWindow.shareData('SIZE:$sizeKey');
+  }
+
+  /// Notifica al overlay el nuevo estado de grabación para que cambie su color.
+  Future<void> notifyState(bool isActive) async {
+    if (await FlutterOverlayWindow.isActive()) {
+      await FlutterOverlayWindow.shareData(isActive ? 'STATE:on' : 'STATE:off');
+    }
   }
 
   Future<void> hideBubble() async {
@@ -79,9 +79,9 @@ class BubbleService {
   }
 }
 
-// ─────────────────────────────────────────────────────────
-// Widget del Overlay (corre en Isolate aparte)
-// ─────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────
+// Widget del Overlay  (corre en Isolate aparte)
+// ─────────────────────────────────────────────────────────────────────────
 class OverlayWidget extends StatefulWidget {
   const OverlayWidget({super.key});
 
@@ -90,14 +90,11 @@ class OverlayWidget extends StatefulWidget {
 }
 
 class _OverlayWidgetState extends State<OverlayWidget> {
-  String _chatName  = '';
-  bool   _isPermanentRecording = false;
-  bool   _isPressed = false;
-  Timer? _bubblePressTimer;
-  Timer? _positionTimer;
+  String  _chatName  = '';
+  bool    _isActive  = false;   // refleja el estado real que viene de CallScreen
+  double  _bubbleSize = _kMediumDp.toDouble();
+  Timer?  _positionTimer;
 
-  // Tamaño en píxeles lógicos (coincide con dp en este plugin)
-  double _bubbleSize = _kMediumDp.toDouble();
 
   @override
   void initState() {
@@ -105,21 +102,33 @@ class _OverlayWidgetState extends State<OverlayWidget> {
     _loadInitialSize();
 
     FlutterOverlayWindow.overlayListener.listen((event) {
-      if (event is! String) return;
+      if (event is! String || event.isEmpty) return;
+
       if (event.startsWith('SIZE:')) {
         _applySize(event.substring(5).trim());
-      } else if (event.isNotEmpty) {
+      } else if (event.startsWith('STATE:')) {
+        // CallScreen informa si está grabando o no
+        final isOn = event.substring(6).trim() == 'on';
+        if (mounted) setState(() => _isActive = isOn);
+      } else {
+        // Es el nombre del canal
         if (mounted) setState(() => _chatName = event);
       }
     });
 
-    // Cerrar al arrastrar al borde inferior
-    _positionTimer = Timer.periodic(const Duration(milliseconds: 300), (_) async {
+    // Cerrar al arrastrar la burbuja al fondo de la pantalla
+    _positionTimer = Timer.periodic(const Duration(milliseconds: 400), (_) async {
       try {
-        final pos = await FlutterOverlayWindow.getOverlayPosition();
-        final view = PlatformDispatcher.instance.views.first;
+        final pos     = await FlutterOverlayWindow.getOverlayPosition();
+        final view    = PlatformDispatcher.instance.views.first;
         final screenH = view.physicalSize.height / view.devicePixelRatio;
-        if (pos.y > screenH * 0.90) FlutterOverlayWindow.closeOverlay();
+        if (pos.y > screenH * 0.90) {
+          // Si estaba grabando, enviamos toggle para que CallScreen detenga
+          if (_isActive) {
+            IsolateNameServer.lookupPortByName(bubblePortName)?.send('toggle');
+          }
+          FlutterOverlayWindow.closeOverlay();
+        }
       } catch (_) {}
     });
   }
@@ -146,47 +155,11 @@ class _OverlayWidgetState extends State<OverlayWidget> {
     super.dispose();
   }
 
-  void _onTapDown(TapDownDetails _) {
-    setState(() => _isPressed = true);
-    _bubblePressTimer?.cancel();
-    _bubblePressTimer = Timer(const Duration(milliseconds: 200), () {});
-    if (!_isPermanentRecording) {
-      IsolateNameServer.lookupPortByName(bubblePortName)?.send('start');
-    }
-  }
-
-  void _onTapUp(TapUpDetails _) {
-    setState(() => _isPressed = false);
-    final isShortTap = _bubblePressTimer?.isActive ?? false;
-    _bubblePressTimer?.cancel();
-
-    if (isShortTap) {
-      final port = IsolateNameServer.lookupPortByName(bubblePortName);
-      if (_isPermanentRecording) {
-        setState(() => _isPermanentRecording = false);
-        port?.send('stop');
-      } else {
-        setState(() => _isPermanentRecording = true);
-      }
-    } else {
-      if (!_isPermanentRecording) {
-        IsolateNameServer.lookupPortByName(bubblePortName)?.send('stop');
-      }
-    }
-  }
-
-  void _onTapCancel() {
-    setState(() => _isPressed = false);
-    _bubblePressTimer?.cancel();
-    if (!_isPermanentRecording) {
-      IsolateNameServer.lookupPortByName(bubblePortName)?.send('stop_cancel');
-    }
-  }
+  // ─────────────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
-    final bool active = _isPermanentRecording || _isPressed;
-    final Color glowColor = active ? Colors.greenAccent : Colors.blueAccent;
+    final Color glowColor = _isActive ? Colors.greenAccent : Colors.blueAccent;
 
     return Material(
       color: Colors.transparent,
@@ -196,15 +169,17 @@ class _OverlayWidgetState extends State<OverlayWidget> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // Margen superior para que el glow no se recorte arriba
+            // Margen superior para que el glow no se recorte
             SizedBox(height: _kGlowPadding.toDouble()),
-            // ── Botón circular ──
+
+            // ── Botón circular ──────────────────────────────────────────
             GestureDetector(
-              onTapDown:   _onTapDown,
-              onTapUp:     _onTapUp,
-              onTapCancel: _onTapCancel,
+              // onTap opera en la capa de gestos de Flutter.
+              // enableDrag nativo de Android opera a nivel de MotionEvent.
+              // Ambos coexisten sin conflicto: tap activa toggle, drag mueve la ventana.
+              onTap: () => IsolateNameServer.lookupPortByName(bubblePortName)?.send('toggle'),
               child: AnimatedContainer(
-                duration: const Duration(milliseconds: 150),
+                duration: const Duration(milliseconds: 200),
                 width:   _bubbleSize,
                 height:  _bubbleSize,
                 padding: EdgeInsets.all(_bubbleSize * 0.1),
@@ -214,8 +189,8 @@ class _OverlayWidgetState extends State<OverlayWidget> {
                   boxShadow: [
                     BoxShadow(
                       color:        glowColor.withValues(alpha: 0.65),
-                      blurRadius:   _bubbleSize * 0.20,
-                      spreadRadius: _bubbleSize * 0.05,
+                      blurRadius:   _bubbleSize * 0.22,
+                      spreadRadius: _bubbleSize * 0.06,
                     ),
                   ],
                 ),
@@ -226,7 +201,7 @@ class _OverlayWidgetState extends State<OverlayWidget> {
               ),
             ),
 
-            // ── Nombre del canal ──
+            // ── Nombre del canal ────────────────────────────────────────
             if (_chatName.isNotEmpty) ...[
               const SizedBox(height: 4),
               SizedBox(
@@ -251,7 +226,8 @@ class _OverlayWidgetState extends State<OverlayWidget> {
                 ),
               ),
             ],
-            // Margen inferior para que el glow no se recorte abajo
+
+            // Margen inferior
             SizedBox(height: _chatName.isEmpty ? _kGlowPadding.toDouble() : 0),
           ],
         ),

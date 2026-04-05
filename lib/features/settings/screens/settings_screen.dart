@@ -150,6 +150,12 @@ class SettingsScreen extends StatelessWidget {
               Navigator.push(context, MaterialPageRoute(builder: (_) => const AlertsHistoryScreen()));
             },
           ),
+          ListTile(
+            leading: const Icon(Icons.bug_report, color: Colors.red),
+            title: const Text('Probar Alerta (Debug)'),
+            subtitle: const Text('Dispara la alerta manualmente para verificar'),
+            onTap: () => context.read<EmergencyService>().triggerEmergency(),
+          ),
           const Divider(),
           const Padding(
             padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -341,10 +347,15 @@ class SettingsScreen extends StatelessWidget {
 
     String currentPhrase = emergency.keyPhrase;
     final Set<String> currentTargetIds = Set.from(emergency.targetIds);
-    
-    // Lista de id posibles (Contactos y Grupos)
+
+    // Filtrar canales directos (direct_xxx) — solo mostrar grupos reales
+    final realGroups = channelsProvider.myChannels
+        .where((g) => !g.id.startsWith('direct_'))
+        .toList();
+
+    // Lista de id posibles (Contactos y Grupos reales)
     final allContactsIds = contactsProvider.contacts.map((c) => 'C_${c.contactId}').toList();
-    final allGroupsIds = channelsProvider.myChannels.map((g) => 'G_${g.id}').toList();
+    final allGroupsIds   = realGroups.map((g) => 'G_${g.id}').toList();
     final allPossibleIds = [...allContactsIds, ...allGroupsIds];
 
     showDialog(
@@ -410,12 +421,12 @@ class SettingsScreen extends StatelessWidget {
                               );
                             }),
                           ],
-                          if (channelsProvider.myChannels.isNotEmpty) ...[
+                          if (realGroups.isNotEmpty) ...[
                             const Padding(
                               padding: EdgeInsets.symmetric(vertical: 8.0, horizontal: 16.0),
                               child: Text('Grupos', style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold)),
                             ),
-                            ...channelsProvider.myChannels.map((g) {
+                            ...realGroups.map((g) {
                               final id = 'G_${g.id}';
                               return CheckboxListTile(
                                 title: Text('👥 ${g.name}'),
