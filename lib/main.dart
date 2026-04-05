@@ -7,6 +7,8 @@ import 'core/providers/channel_provider.dart';
 import 'core/providers/contact_provider.dart';
 import 'core/providers/theme_provider.dart';
 import 'core/providers/presence_provider.dart';
+import 'core/providers/voice_provider.dart';
+import 'core/services/socket_service.dart';
 
 import 'features/auth/screens/login_screen.dart';
 import 'features/groups/screens/groups_screen.dart';
@@ -74,6 +76,7 @@ class WalkieSosApp extends StatelessWidget {
           initialPrimaryColor: initialPrimaryColor,
           initialPrimaryGradientColors: initialPrimaryGradientColors,
         )),
+        ChangeNotifierProvider(create: (_) => VoiceProvider()),
         ChangeNotifierProvider(create: (_) {
           final p = PresenceProvider();
           p.startListening();
@@ -160,6 +163,25 @@ class _AppRootState extends State<AppRoot> {
   Future<void> _initialize() async {
     // 1. Continuar y checar sesión primero para no bloquear la pantalla de carga
     await context.read<AuthProvider>().tryAutoLogin();
+    
+    // Iniciar el sistema de voz global si hay un usuario y unirse a todo
+    final user = context.read<AuthProvider>().user;
+    if (user != null) {
+      await context.read<VoiceProvider>().init(user.id);
+      
+      context.read<ChannelProvider>().loadMyChannels().then((_) {
+        for (var c in context.read<ChannelProvider>().myChannels) {
+          SocketService().joinChannel(c.id);
+        }
+      });
+      
+      context.read<ContactProvider>().loadContacts().then((_) {
+        for (var c in context.read<ContactProvider>().contacts) {
+          SocketService().joinChannel('direct_${user.id}_${c.contactId}');
+        }
+      });
+    }
+    
     if (mounted) setState(() => _checked = true);
 
     // 2. Pedir permisos principales

@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../core/providers/auth_provider.dart';
+import '../../../core/providers/voice_provider.dart';
+import '../../../core/providers/channel_provider.dart';
+import '../../../core/providers/contact_provider.dart';
+import '../../../core/services/socket_service.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -41,6 +45,20 @@ class _RegisterScreenState extends State<RegisterScreen> {
         SnackBar(content: Text(auth.error ?? 'Error al registrarse')),
       );
     } else if (ok && mounted) {
+      final user = auth.user;
+      if (user != null) {
+        await context.read<VoiceProvider>().init(user.id);
+        context.read<ChannelProvider>().loadMyChannels().then((_) {
+          for (var c in context.read<ChannelProvider>().myChannels) {
+            SocketService().joinChannel(c.id);
+          }
+        });
+        context.read<ContactProvider>().loadContacts().then((_) {
+          for (var c in context.read<ContactProvider>().contacts) {
+            SocketService().joinChannel('direct_${user.id}_${c.contactId}');
+          }
+        });
+      }
       Navigator.of(context).popUntil((route) => route.isFirst);
     }
   }

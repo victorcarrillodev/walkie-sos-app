@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../models/channel_model.dart';
 import '../services/api_service.dart';
+import '../services/socket_service.dart';
 
 class ChannelProvider extends ChangeNotifier {
   List<ChannelModel> _myChannels = [];
@@ -21,6 +22,9 @@ class ChannelProvider extends ChangeNotifier {
     try {
       final data = await _api.getMyChannels();
       _myChannels = data.map((e) => ChannelModel.fromJson(e)).toList();
+      for (final c in _myChannels) {
+        SocketService().joinChannel(c.id);
+      }
       _error = null;
     } catch (e) {
       _error = 'Error al cargar canales';

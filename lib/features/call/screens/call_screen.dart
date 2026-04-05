@@ -20,6 +20,7 @@ import '../../../core/models/message_model.dart';
 import '../../../core/providers/auth_provider.dart';
 import '../../../core/providers/presence_provider.dart';
 import '../../../core/providers/channel_provider.dart';
+import '../../../core/providers/voice_provider.dart';
 import '../../../core/services/database_service.dart';
 import '../../../core/services/socket_service.dart';
 import '../../../core/services/bubble_service.dart';
@@ -63,6 +64,7 @@ class _CallScreenState extends State<CallScreen> {
   String? _initError;
   List<MessageModel> _messages = [];
   String? _beepPath;
+  StreamSubscription? _newMessageSub;
   
   final Map<String, bool> _playingMessages = {};
 
@@ -127,6 +129,13 @@ class _CallScreenState extends State<CallScreen> {
       }
     }
 
+    _newMessageSub = context.read<VoiceProvider>().newMessageStream.listen((msg) {
+      if (msg.channelId == widget.channel.id && mounted) {
+        setState(() => _messages.insert(0, msg));
+        WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
+      }
+    });
+
     _init();
   }
 
@@ -145,11 +154,9 @@ class _CallScreenState extends State<CallScreen> {
         return;
       }
 
-      await _setupBackgroundExecution();
-
       if (!_socket.isConnected) await _socket.connect();
       _socket.joinChannel(widget.channel.id);
-      _webRTCService.init(widget.channel.id, myUserId: _myUserId);
+      // Ya no llamamos _webRTCService.init ni FlutterBackground aquí.
       
       await _loadMessages();
       await _generateBeep();
@@ -175,46 +182,6 @@ class _CallScreenState extends State<CallScreen> {
       if (mounted) setState(() { _isConnected = true; _isInitializing = false; });
     } catch (e) {
       if (mounted) setState(() { _initError = '$e'; _isInitializing = false; });
-    }
-  }
-
-  Future<void> _setupBackgroundExecution() async {
-    try {
-      final session = await AudioSession.instance;
-      // Configuramos la sesión de audio con modo 'speech' y forzamos
-      // la salida por altavoz sólo cuando el usuario explícitamente escucha.
-      // Esto reduce la retroalimentación del micrófono al altavoz.
-      await session.configure(AudioSessionConfiguration(
-        avAudioSessionCategory: AVAudioSessionCategory.playAndRecord,
-        avAudioSessionCategoryOptions: AVAudioSessionCategoryOptions.allowBluetooth,
-        avAudioSessionMode: AVAudioSessionMode.voiceChat, // modo voz: usa cancelación de eco del sistema
-        avAudioSessionRouteSharingPolicy: AVAudioSessionRouteSharingPolicy.defaultPolicy,
-        avAudioSessionSetActiveOptions: AVAudioSessionSetActiveOptions.none,
-        androidAudioAttributes: const AndroidAudioAttributes(
-          contentType: AndroidAudioContentType.speech,
-          flags: AndroidAudioFlags.none,
-          usage: AndroidAudioUsage.voiceCommunication, // cancel de eco del SO en Android
-        ),
-        androidAudioFocusGainType: AndroidAudioFocusGainType.gain,
-        androidWillPauseWhenDucked: true,
-      ));
-
-      if (Platform.isAndroid) {
-        final androidConfig = FlutterBackgroundAndroidConfig(
-          notificationTitle: "Walkie SOS: ${widget.channel.name}",
-          notificationText: "Escuchando el canal",
-          notificationImportance: AndroidNotificationImportance.normal,
-          notificationIcon: const AndroidResource(name: 'logo', defType: 'drawable'),
-        );
-        
-        bool hasPermissions = await FlutterBackground.initialize(androidConfig: androidConfig);
-        if (hasPermissions) {
-          await FlutterBackground.enableBackgroundExecution();
-          debugPrint('✅ Ejecución en segundo plano activada');
-        }
-      }
-    } catch (e) {
-      debugPrint('❌ Error al configurar segundo plano: $e');
     }
   }
 
@@ -298,22 +265,8 @@ class _CallScreenState extends State<CallScreen> {
   }
 
   void _setupListeners() {
-    _socket.onPttStatus((data) {
-      if (mounted) {
-        final map = data is List ? data[0] : data;
-        setState(() {
-        _whoIsTalking = (map['isTalking'] == true) ? map['alias'] : null;
-      });
-      }
-    });
-
-    _socket.onReceiveAudio((data) async {
-      final map = data is List ? data[0] : data;
-      // Ignorar el audio que nosotros mismos enviamos para evitar retroalimentación
-      final senderId = map['userId'] as String? ?? '';
-      if (senderId == _myUserId) return;
-      await _saveAudioHistory(map); 
-    });
+    // onPttStatus y onReceiveAudio ahora los maneja VoiceProvider globalmente.
+    // Solo manejaremos errores locales.
 
     _socket.onTalkError((data) async {
       if (!mounted) return;
@@ -329,7 +282,8 @@ class _CallScreenState extends State<CallScreen> {
   }
 
   Future<void> _startTalking() async {
-    if (_isTalking || _whoIsTalking != null) return; 
+    final vp = context.read<VoiceProvider>();
+    if (_isTalking || vp.whoIsTalking != null) return; 
 
     setState(() => _isTalking = true);
 
@@ -351,9 +305,7 @@ class _CallScreenState extends State<CallScreen> {
     _playBeep();
     
     // Iniciamos WebRTC para streaming en tiempo real
-    // El eco acuústico se maneja a nivel de HW via AndroidAudioUsage.voiceCommunication
-    // + echoCancellation:true en las constraints de getUserMedia
-    await _webRTCService.startTalking();
+    await _webRTCService.startTalking(widget.channel.id);
 
     try {
       final dir = await getApplicationDocumentsDirectory();
@@ -415,30 +367,8 @@ class _CallScreenState extends State<CallScreen> {
     }
   }
 
-  Future<void> _saveAudioHistory(dynamic data) async {
-    try {
-      final dir = await getApplicationDocumentsDirectory();
-      final path = '${dir.path}/recv_${DateTime.now().millisecondsSinceEpoch}.m4a';
-      final bytes = base64Decode(data['audioData']);
-      await File(path).writeAsBytes(bytes);
-      
-      final msg = MessageModel(
-        id: DateTime.now().millisecondsSinceEpoch.toString(),
-        channelId: widget.channel.id,
-        userId: data['userId'] ?? '',
-        alias: data['alias'] ?? 'Desconocido',
-        audioPath: path,
-        createdAt: DateTime.now(),
-      );
-      await _db.saveMessage(msg);
-      if (mounted) {
-        setState(() => _messages.insert(0, msg));
-        WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
-      }
-    } catch (e) {
-      debugPrint('Error guardando historial: $e');
-    }
-  }
+  // Historial lo guarda VoiceProvider en global. Nos podemos ahorrar este bloque,
+  // pero ya fue eliminado con el refactor de onReceiveAudio.
 
   Future<void> _togglePlayMessage(MessageModel msg) async {
     final isPlaying = _playingMessages[msg.id] == true;
@@ -477,9 +407,7 @@ class _CallScreenState extends State<CallScreen> {
 
   @override
   void dispose() {
-    _webRTCService.dispose();
-    _socket.leaveChannel(widget.channel.id);
-    _socket.removeChannelListeners();
+    _newMessageSub?.cancel();
     BubbleService().hideBubble();
     IsolateNameServer.removePortNameMapping(bubblePortName);
     _bubbleReceivePort.close();
@@ -489,11 +417,6 @@ class _CallScreenState extends State<CallScreen> {
     _scrollController.dispose();
     _currentPosition.dispose();
     _totalDuration.dispose();
-    
-    if (Platform.isAndroid) {
-      FlutterBackground.disableBackgroundExecution();
-    }
-    
     super.dispose();
   }
 
@@ -687,13 +610,13 @@ class _CallScreenState extends State<CallScreen> {
     return Column(children: [
       AnimatedContainer(
         duration: const Duration(milliseconds: 200),
-        height: _whoIsTalking != null ? 44 : 0,
+        height: (context.watch<VoiceProvider>().whoIsTalking != null && context.watch<VoiceProvider>().activeChannelId == widget.channel.id) ? 44 : 0,
         color: Theme.of(context).colorScheme.primary.withOpacity(0.12),
-        child: _whoIsTalking != null
+        child: (context.watch<VoiceProvider>().whoIsTalking != null && context.watch<VoiceProvider>().activeChannelId == widget.channel.id)
             ? Row(mainAxisAlignment: MainAxisAlignment.center, children: [
                 Icon(Icons.graphic_eq, color: Theme.of(context).colorScheme.primary, size: 18),
                 const SizedBox(width: 8),
-                Text('$_whoIsTalking está hablando...', style: TextStyle(color: Theme.of(context).colorScheme.primary, fontSize: 14)),
+                Text('${context.watch<VoiceProvider>().whoIsTalking} está hablando...', style: TextStyle(color: Theme.of(context).colorScheme.primary, fontSize: 14)),
               ])
             : null,
       ),
@@ -736,65 +659,70 @@ class _CallScreenState extends State<CallScreen> {
           color: isDark ? const Color(0xFF0F0F0F) : Colors.white,
           boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 12, offset: const Offset(0, -2))],
         ),
-        child: GestureDetector(
-          onTapDown: _whoIsTalking != null ? null : (_) => _startTalking(),
-          onTapUp: (_) => _stopTalking(),
-          onTapCancel: () => _stopTalking(cancel: true),
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 150),
-            width: double.infinity, 
-            height: 72, 
-            decoration: BoxDecoration(
-              color: _isTalking
-                  ? Theme.of(context).colorScheme.primary
-                  : (_whoIsTalking != null) 
-                      ? (isDark ? const Color(0xFF111111) : Colors.grey.shade300)
-                      : (isDark ? const Color(0xFF1C1C1C) : Colors.grey.shade200),
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(
-                color: _isTalking
-                    ? Theme.of(context).colorScheme.primary
-                    : (_whoIsTalking != null)
-                        ? Colors.red.withOpacity(0.3)
-                        : (isDark ? const Color(0xFF333333) : Colors.grey.shade400),
-                width: 2,
-              ),
-              boxShadow: _isTalking ? [BoxShadow(
-                color: Theme.of(context).colorScheme.primary.withOpacity(0.45),
-                blurRadius: 20,
-                spreadRadius: 2,
-              )] : [],
-            ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(
-                  _whoIsTalking != null 
-                      ? Icons.lock 
-                      : (_isTalking ? Icons.mic : Icons.mic_none),
-                  size: 32,
-                  color: _isTalking 
-                      ? Colors.black 
-                      : (_whoIsTalking != null ? Colors.red.withOpacity(0.5) : (isDark ? Colors.white : Colors.black87)),
-                ),
-                const SizedBox(width: 12),
-                Text(
-                  _isTalking 
-                      ? '🔴 Transmitiendo...' 
-                      : (_whoIsTalking != null)
-                          ? 'Canal ocupado'
-                          : 'Mantén para hablar',
-                  style: TextStyle(
-                    color: _isTalking 
-                        ? Colors.black 
-                        : (_whoIsTalking != null ? Colors.red.withOpacity(0.8) : (isDark ? Colors.white : Colors.black87)),
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
+        child: Consumer<VoiceProvider>(
+          builder: (context, voiceProvider, _) {
+            final isOccupied = voiceProvider.whoIsTalking != null;
+            return GestureDetector(
+              onTapDown: isOccupied ? null : (_) => _startTalking(),
+              onTapUp: (_) => _stopTalking(),
+              onTapCancel: () => _stopTalking(cancel: true),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 150),
+                width: double.infinity, 
+                height: 72, 
+                decoration: BoxDecoration(
+                  color: _isTalking
+                      ? Theme.of(context).colorScheme.primary
+                      : isOccupied
+                          ? (isDark ? const Color(0xFF111111) : Colors.grey.shade300)
+                          : (isDark ? const Color(0xFF1C1C1C) : Colors.grey.shade200),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(
+                    color: _isTalking
+                        ? Theme.of(context).colorScheme.primary
+                        : isOccupied
+                            ? Colors.red.withOpacity(0.3)
+                            : (isDark ? const Color(0xFF333333) : Colors.grey.shade400),
+                    width: 2,
                   ),
+                  boxShadow: _isTalking ? [BoxShadow(
+                    color: Theme.of(context).colorScheme.primary.withOpacity(0.45),
+                    blurRadius: 20,
+                    spreadRadius: 2,
+                  )] : [],
                 ),
-              ],
-            ),
-          ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      isOccupied 
+                          ? Icons.lock 
+                          : (_isTalking ? Icons.mic : Icons.mic_none),
+                      size: 32,
+                      color: _isTalking 
+                          ? Colors.black 
+                          : (isOccupied ? Colors.red.withOpacity(0.5) : (isDark ? Colors.white : Colors.black87)),
+                    ),
+                    const SizedBox(width: 12),
+                    Text(
+                      _isTalking 
+                          ? '🔴 Transmitiendo...' 
+                          : isOccupied
+                              ? 'Canal ocupado'
+                              : 'Mantén para hablar',
+                      style: TextStyle(
+                        color: _isTalking 
+                            ? Colors.black 
+                            : (isOccupied ? Colors.red.withOpacity(0.8) : (isDark ? Colors.white : Colors.black87)),
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }
         ),
       ),
     ]);

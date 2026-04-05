@@ -17,7 +17,6 @@ class WebRTCService {
   final Map<String, MediaStreamTrack> _remoteAudioTracks = {};
 
   MediaStream? _localStream;
-  String? _currentChannelId;
 
   // ID del usuario local para ignorar señales WebRTC propias (evita auto-echo)
   String? _myUserId;
@@ -45,8 +44,7 @@ class WebRTCService {
     'video': false,
   };
 
-  void init(String channelId, {required String myUserId}) {
-    _currentChannelId = channelId;
+  void initGlobal({required String myUserId}) {
     _myUserId = myUserId;
     _setupSocketListeners();
   }
@@ -55,33 +53,35 @@ class WebRTCService {
     _socketService.onReceiveOffer((data) async {
       final map = data is List ? data[0] : data;
       final senderId = map['userId'] as String?;
+      final channelId = map['channelId'] as String?;
       // Ignorar nuestra propia oferta si el servidor hace broadcast total
-      if (senderId == _myUserId) {
-        debugPrint('🚫 Ignorando oferta WebRTC propia (self-echo)');
+      if (senderId == _myUserId || channelId == null) {
+        debugPrint('🚫 Ignorando oferta WebRTC');
         return;
       }
-      debugPrint('📥 Recibida oferta WebRTC de $senderId');
-      await _handleIncomingOffer(senderId, map['offer']);
+      debugPrint('📥 Recibida oferta WebRTC de $senderId (Canal: $channelId)');
+      await _handleIncomingOffer(senderId, channelId, map['offer']);
     });
 
     _socketService.onReceiveAnswer((data) async {
       final map = data is List ? data[0] : data;
       final senderId = map['userId'] as String?;
-      if (senderId == _myUserId) return;
+      final channelId = map['channelId'] as String?;
+      if (senderId == _myUserId || channelId == null) return;
       debugPrint('📥 Recibida respuesta WebRTC de $senderId');
-      await _handleIncomingAnswer(senderId, map['answer']);
+      await _handleIncomingAnswer(senderId, channelId, map['answer']);
     });
 
     _socketService.onReceiveIceCandidate((data) async {
       final map = data is List ? data[0] : data;
       final senderId = map['userId'] as String?;
-      if (senderId == _myUserId) return;
-      await _handleIncomingIceCandidate(senderId, map['candidate']);
+      final channelId = map['channelId'] as String?;
+      if (senderId == _myUserId || channelId == null) return;
+      await _handleIncomingIceCandidate(senderId, channelId, map['candidate']);
     });
   }
 
-  Future<void> startTalking() async {
-    if (_currentChannelId == null) return;
+  Future<void> startTalking(String channelId) async {
     // Evitar arrancar si ya hay un stream activo
     if (_localStream != null) await stopTalking();
 
@@ -92,7 +92,7 @@ class WebRTCService {
     _senderPc = await createPeerConnection(_configuration);
     _senderPc!.onIceCandidate = (RTCIceCandidate candidate) {
       if (candidate.candidate != null) {
-        _socketService.sendIceCandidate(_currentChannelId!, candidate.toMap());
+        _socketService.sendIceCandidate(channelId, candidate.toMap());
       }
     };
     _senderPc!.onIceConnectionState = (state) {
@@ -117,7 +117,7 @@ class WebRTCService {
     try {
       final offer = await _senderPc!.createOffer({'offerToReceiveAudio': false});
       await _senderPc!.setLocalDescription(offer);
-      _socketService.sendOffer(_currentChannelId!, offer.toMap());
+      _socketService.sendOffer(channelId, offer.toMap());
       debugPrint('📤 Oferta WebRTC enviada');
     } catch (e) {
       debugPrint('❌ Error al crear oferta WebRTC: $e');
@@ -145,9 +145,10 @@ class WebRTCService {
 
   Future<void> _handleIncomingOffer(
     String? remoteUserId,
+    String? channelId,
     Map<String, dynamic> offerMap,
   ) async {
-    if (remoteUserId == null || _currentChannelId == null) return;
+    if (remoteUserId == null || channelId == null) return;
 
     // Cerrar conexión previa de este usuario si existe
     if (_receiverPcs.containsKey(remoteUserId)) {
@@ -160,7 +161,7 @@ class WebRTCService {
 
     pc.onIceCandidate = (RTCIceCandidate candidate) {
       if (candidate.candidate != null) {
-        _socketService.sendIceCandidate(_currentChannelId!, candidate.toMap());
+        _socketService.sendIceCandidate(channelId, candidate.toMap());
       }
     };
 
@@ -194,8 +195,8 @@ class WebRTCService {
         'offerToReceiveVideo': false,
       });
       await pc.setLocalDescription(answer);
-      _socketService.sendAnswer(_currentChannelId!, answer.toMap());
-      debugPrint('📥 Respuesta WebRTC enviada a $remoteUserId');
+      _socketService.sendAnswer(channelId, answer.toMap());
+      debugPrint('📥 Respuesta WebRTC enviada a $remoteUserId ($channelId)');
     } catch (e) {
       debugPrint('❌ Error procesando oferta de $remoteUserId: $e');
     }
@@ -203,6 +204,7 @@ class WebRTCService {
 
   Future<void> _handleIncomingAnswer(
     String? remoteUserId,
+    String? channelId,
     Map<String, dynamic> answerMap,
   ) async {
     final pc = _senderPc;
@@ -223,6 +225,7 @@ class WebRTCService {
 
   Future<void> _handleIncomingIceCandidate(
     String? remoteUserId,
+    String? channelId,
     Map<String, dynamic> candidateMap,
   ) async {
     // Un ICE candidate puede ser para la conexión emisora o receptora

@@ -12,6 +12,7 @@ class SocketService {
 
   static const String baseUrl = 'https://walkiesos.jegode.com';
   IO.Socket? _socket;
+  final Set<String> _joinedChannels = {};
 
   bool get isConnected => _socket?.connected ?? false;
   IO.Socket? get socket => _socket;
@@ -42,6 +43,11 @@ class SocketService {
   _socket!.onConnect((_) {
     debugPrint('✅ Socket conectado - ID: ${_socket!.id}');
     if (!connectionCompleter.isCompleted) connectionCompleter.complete();
+    
+    // Auto re-join tras una desconexión (por ej. background)
+    for (final channelId in _joinedChannels) {
+      _socket?.emit('join-channel', channelId);
+    }
   });
 
   _socket!.onConnectError((data) {
@@ -61,10 +67,12 @@ class SocketService {
 
   void joinChannel(String channelId) {
     debugPrint('📻 Uniéndose al canal: $channelId');
+    _joinedChannels.add(channelId);
     _socket?.emit('join-channel', channelId);
   }
 
   void leaveChannel(String channelId) {
+    _joinedChannels.remove(channelId);
     _socket?.emit('leave-channel', channelId);
   }
 
@@ -179,5 +187,6 @@ class SocketService {
     _socket?.disconnect();
     _socket?.dispose();
     _socket = null;
+    _joinedChannels.clear();
   }
 }
