@@ -300,8 +300,9 @@ class _CallScreenState extends State<CallScreen> {
   void _setupListeners() {
     _socket.onPttStatus((data) {
       if (mounted) {
+        final map = data is List ? data[0] : data;
         setState(() {
-        _whoIsTalking = (data['isTalking'] == true) ? data['alias'] : null;
+        _whoIsTalking = (map['isTalking'] == true) ? map['alias'] : null;
       });
       }
     });
@@ -718,6 +719,9 @@ class _CallScreenState extends State<CallScreen> {
                     isMe: msg.userId == _myUserId,
                     isPlaying: _playingMessages[msg.id] == true,
                     onPlayToggle: () => _togglePlayMessage(msg),
+                    onOptionsTap: _isAdmin && msg.userId != _myUserId 
+                        ? () => _showMessageOptions(msg) 
+                        : null,
                     currentPositionNotifier: _currentPosition,
                     totalDurationNotifier: _totalDuration,
                   );
@@ -796,6 +800,65 @@ class _CallScreenState extends State<CallScreen> {
     ]);
   }
 
+  void _showMessageOptions(MessageModel msg) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: isDark ? const Color(0xFF1A1A1A) : Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (_) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Text('Administrar a @${msg.alias}', 
+                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                textAlign: TextAlign.center,
+              ),
+            ),
+            ListTile(
+              leading: const Icon(Icons.timer, color: Colors.orange),
+              title: const Text('Silenciar por 5 minutos'),
+              onTap: () async {
+                Navigator.pop(context);
+                await context.read<ChannelProvider>().penalizeMember(widget.channel.id, msg.userId, 5);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.timer, color: Colors.orange),
+              title: const Text('Silenciar por 15 minutos'),
+              onTap: () async {
+                Navigator.pop(context);
+                await context.read<ChannelProvider>().penalizeMember(widget.channel.id, msg.userId, 15);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.timer, color: Colors.orange),
+              title: const Text('Silenciar por 30 minutos'),
+              onTap: () async {
+                Navigator.pop(context);
+                await context.read<ChannelProvider>().penalizeMember(widget.channel.id, msg.userId, 30);
+              },
+            ),
+            const Divider(),
+            ListTile(
+              leading: const Icon(Icons.volume_up, color: Colors.green),
+              title: const Text('Quitar penalización'),
+              onTap: () async {
+                Navigator.pop(context);
+                await context.read<ChannelProvider>().penalizeMember(widget.channel.id, msg.userId, null);
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildBigButtonView(bool isDark) {
     return Center(
       child: Column(
@@ -868,6 +931,7 @@ class MessageBubble extends StatefulWidget {
   final bool isMe;
   final bool isPlaying;
   final VoidCallback onPlayToggle;
+  final VoidCallback? onOptionsTap;
   final ValueNotifier<Duration> currentPositionNotifier;
   final ValueNotifier<Duration> totalDurationNotifier;
 
@@ -877,6 +941,7 @@ class MessageBubble extends StatefulWidget {
     required this.isMe,
     required this.isPlaying,
     required this.onPlayToggle,
+    this.onOptionsTap,
     required this.currentPositionNotifier,
     required this.totalDurationNotifier,
   });
@@ -1053,6 +1118,14 @@ class _MessageBubbleState extends State<MessageBubble> {
             ),
             const SizedBox(width: 8),
             Text(time, style: const TextStyle(color: Colors.grey, fontSize: 10)),
+            if (widget.onOptionsTap != null && !widget.isMe)
+              GestureDetector(
+                onTap: widget.onOptionsTap,
+                child: const Padding(
+                  padding: EdgeInsets.only(left: 8),
+                  child: Icon(Icons.more_vert, size: 16, color: Colors.grey),
+                ),
+              ),
           ],
         ),
       ),
