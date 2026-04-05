@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter_overlay_window/flutter_overlay_window.dart';
 
 import '../../../core/providers/auth_provider.dart';
 import '../../../core/providers/theme_provider.dart';
@@ -147,6 +149,16 @@ class SettingsScreen extends StatelessWidget {
             onTap: () {
               Navigator.push(context, MaterialPageRoute(builder: (_) => const AlertsHistoryScreen()));
             },
+          ),
+          const Divider(),
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Text('Botón Flotante', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey)),
+          ),
+          ListTile(
+            leading: const Icon(Icons.picture_in_picture_alt, color: Colors.purple),
+            title: const Text('Tamaño del botón'),
+            onTap: () => _showBubbleSizeDialog(context),
           ),
           const Divider(),
           ListTile(
@@ -430,6 +442,67 @@ class SettingsScreen extends StatelessWidget {
                   },
                   child: const Text('Guardar'),
                 )
+              ],
+            );
+          }
+        );
+      }
+    );
+  }
+
+  void _showBubbleSizeDialog(BuildContext context) async {
+    final prefs = await SharedPreferences.getInstance();
+    String currentSize = prefs.getString('bubble_size') ?? 'medium';
+    
+    if (!context.mounted) return;
+    
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (context, setState) {
+            return AlertDialog(
+              title: const Text('Tamaño del botón'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  RadioListTile<String>(
+                    title: const Text('Chico'),
+                    value: 'small',
+                    groupValue: currentSize,
+                    onChanged: (val) {
+                      setState(() => currentSize = val!);
+                      prefs.setString('bubble_size', currentSize);
+                      FlutterOverlayWindow.shareData('SIZE:$currentSize');
+                    },
+                  ),
+                  RadioListTile<String>(
+                    title: const Text('Mediano'),
+                    value: 'medium',
+                    groupValue: currentSize,
+                    onChanged: (val) {
+                      setState(() => currentSize = val!);
+                      prefs.setString('bubble_size', currentSize);
+                      FlutterOverlayWindow.shareData('SIZE:$currentSize');
+                    },
+                  ),
+                  RadioListTile<String>(
+                    title: const Text('Grande'),
+                     value: 'large',
+                     groupValue: currentSize,
+                     onChanged: (val) {
+                       setState(() => currentSize = val!);
+                       prefs.setString('bubble_size', currentSize);
+                       FlutterOverlayWindow.shareData('SIZE:$currentSize');
+                     },
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('Cerrar'),
+                ),
               ],
             );
           }
