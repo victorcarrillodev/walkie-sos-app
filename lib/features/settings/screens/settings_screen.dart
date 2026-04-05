@@ -161,6 +161,12 @@ class SettingsScreen extends StatelessWidget {
             onTap: () => _showBubbleSizeDialog(context),
           ),
           const Divider(),
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Text('Pantalla de Canal', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey)),
+          ),
+          _EqualizerToggleTile(),
+          const Divider(),
           ListTile(
             leading: const Icon(Icons.logout, color: Colors.red),
             title: const Text('Cerrar Sesión', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
@@ -617,6 +623,44 @@ class SettingsScreen extends StatelessWidget {
           },
         );
       },
+    );
+  }
+}
+
+// ─── Toggle para mostrar/ocultar el ecualizador ───────────────────────────
+class _EqualizerToggleTile extends StatefulWidget {
+  @override
+  State<_EqualizerToggleTile> createState() => _EqualizerToggleTileState();
+}
+
+class _EqualizerToggleTileState extends State<_EqualizerToggleTile> {
+  bool _enabled = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (mounted) setState(() => _enabled = prefs.getBool('show_equalizer') ?? true);
+  }
+
+  Future<void> _toggle(bool val) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('show_equalizer', val);
+    if (mounted) setState(() => _enabled = val);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SwitchListTile(
+      secondary: const Icon(Icons.equalizer, color: Colors.teal),
+      title: const Text('Barras de Ecualizador'),
+      subtitle: const Text('Mostrar animación al hablar en el canal'),
+      value: _enabled,
+      onChanged: _toggle,
     );
   }
 }

@@ -12,6 +12,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 import 'package:record/record.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../core/models/channel_model.dart';
 import '../../../core/models/message_model.dart';
@@ -81,6 +82,10 @@ class _CallScreenState extends State<CallScreen> {
   bool _isAdmin = false;
   
   bool _isChatView = false;
+  bool _showEqualizer = true;
+  // Amplitud del micrófono en tiempo real (0.0 – 1.0)
+  final ValueNotifier<double> _amplitudeNotifier = ValueNotifier(0.0);
+  Timer? _amplitudeTimer;
 
   @override
   void initState() {
@@ -100,6 +105,7 @@ class _CallScreenState extends State<CallScreen> {
         _stopTalking(cancel: true);
       }
     });
+    _loadEqualizerPref();
     
     _player.onPositionChanged.listen((pos) {
       if (mounted) _currentPosition.value = pos;
@@ -136,6 +142,13 @@ class _CallScreenState extends State<CallScreen> {
     });
 
     _init();
+  }
+
+  Future<void> _loadEqualizerPref() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (mounted) setState(() => _showEqualizer = prefs.getBool('show_equalizer') ?? true);
+    } catch (_) {}
   }
 
   Future<void> _init() async {
@@ -286,6 +299,20 @@ class _CallScreenState extends State<CallScreen> {
 
     setState(() => _isTalking = true);
 
+    // Starto de la p levántola del nivel y se actualizará en un timer
+    _amplitudeTimer = Timer.periodic(const Duration(milliseconds: 80), (_) async {
+      try {
+        final amp = await _recorder.getAmplitude();
+        // amp.current está en dBFS (0 a -160). Normalizamos a 0.0–1.0
+        // -30 dBFS es hablar fuerte, -80 es silencio
+        const minDb = -80.0;
+        const maxDb = -10.0;
+        final clamped = amp.current.clamp(minDb, maxDb);
+        final normalized = (clamped - minDb) / (maxDb - minDb);
+        _amplitudeNotifier.value = normalized;
+      } catch (_) {}
+    });
+
     // Pausar escucha de emergencia temporalmente para liberar el micrófono
     await EmergencyService().stopListening();
 
@@ -330,6 +357,9 @@ class _CallScreenState extends State<CallScreen> {
     if (!_isTalking) return;
     _maxDurationTimer?.cancel();
     _maxDurationTimer = null;
+    _amplitudeTimer?.cancel();
+    _amplitudeTimer = null;
+    _amplitudeNotifier.value = 0.0;
     setState(() => _isTalking = false);
     
     await _webRTCService.stopTalking();
@@ -845,12 +875,127 @@ class _CallScreenState extends State<CallScreen> {
             style: TextStyle(
               color: _isTalking 
                   ? Theme.of(context).colorScheme.primary
-                  : (_whoIsTalking != null ? Colors.red.withOpacity(0.8) : (isDark ? Colors.white70 : Colors.black54)),
+                  : (_whoIsTalking != null ? Colors.red.withValues(alpha: 0.8) : (isDark ? Colors.white70 : Colors.black54)),
               fontSize: 18,
               fontWeight: FontWeight.bold,
             ),
           ),
+          if (_showEqualizer) ...[  
+            const SizedBox(height: 32),
+            EqualizerBars(
+              amplitudeNotifier: _amplitudeNotifier,
+              isActive: _isTalking,
+              color: Theme.of(context).colorScheme.primary,
+            ),
+          ],
         ],
+      ),
+    );
+  }
+}
+
+// =========================================================================
+// WIDGET: Barras tipo Ecualizador
+// =========================================================================
+class EqualizerBars extends StatefulWidget {
+  final ValueNotifier<double> amplitudeNotifier; // 0.0 a 1.0
+  final bool isActive;
+  final Color color;
+  final int barCount;
+
+  const EqualizerBars({
+    super.key,
+    required this.amplitudeNotifier,
+    required this.isActive,
+    required this.color,
+    this.barCount = 7,
+  });
+
+  @override
+  State<EqualizerBars> createState() => _EqualizerBarsState();
+}
+
+class _EqualizerBarsState extends State<EqualizerBars> {
+  // Factor de variación por barra para que cada una sea diferente
+  late List<double> _barFactors;
+  List<double> _barHeights = [];
+  final _rng = Random();
+
+  @override
+  void initState() {
+    super.initState();
+    _barFactors = List.generate(
+      widget.barCount,
+      (_) => 0.4 + _rng.nextDouble() * 0.6, // factor entre 0.4 y 1.0
+    );
+    _barHeights = List.filled(widget.barCount, 0.05);
+    widget.amplitudeNotifier.addListener(_onAmplitude);
+  }
+
+  void _onAmplitude() {
+    if (!mounted || !widget.isActive) return;
+    final amp = widget.amplitudeNotifier.value;
+    setState(() {
+      for (int i = 0; i < widget.barCount; i++) {
+        // Cada barra varía independientemente con ruido aleatorio suave
+        final target = amp * _barFactors[i];
+        // Suavizamos la transición entre valores (low-pass)
+        _barHeights[i] = _barHeights[i] * 0.4 + target * 0.6;
+        // Regenerar factor de vez en cuando para movimiento orgánico
+        if (_rng.nextDouble() < 0.15) {
+          _barFactors[i] = 0.4 + _rng.nextDouble() * 0.6;
+        }
+      }
+    });
+  }
+
+  @override
+  void didUpdateWidget(EqualizerBars old) {
+    super.didUpdateWidget(old);
+    if (!widget.isActive) {
+      // Bajar suavemente al apagarse
+      setState(() => _barHeights = List.filled(widget.barCount, 0.05));
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.amplitudeNotifier.removeListener(_onAmplitude);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    const maxHeight = 52.0;
+    const barWidth  = 9.0;
+    const minHeight = 4.0;
+
+    return SizedBox(
+      width: barWidth * widget.barCount * 1.9,
+      height: maxHeight,
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: List.generate(widget.barCount, (i) {
+          final h = (minHeight + _barHeights[i] * (maxHeight - minHeight))
+              .clamp(minHeight, maxHeight);
+          return AnimatedContainer(
+            duration: const Duration(milliseconds: 60),
+            width: barWidth,
+            height: h,
+            decoration: BoxDecoration(
+              color: widget.color,
+              borderRadius: BorderRadius.circular(5),
+              boxShadow: [
+                BoxShadow(
+                  color: widget.color.withValues(alpha: 0.45),
+                  blurRadius: 6,
+                  spreadRadius: 1,
+                ),
+              ],
+            ),
+          );
+        }),
       ),
     );
   }
