@@ -1,3 +1,4 @@
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import '../models/channel_model.dart';
 import '../services/api_service.dart';
@@ -54,7 +55,7 @@ class ChannelProvider extends ChangeNotifier {
       notifyListeners();
       return true;
     } catch (e) {
-      _error = 'Error al crear grupo';
+      _error = _parseError(e);
       notifyListeners();
       return false;
     }
@@ -66,7 +67,7 @@ class ChannelProvider extends ChangeNotifier {
       await loadMyChannels();
       return true;
     } catch (e) {
-      _error = 'Contraseña incorrecta o grupo no existe';
+      _error = _parseError(e);
       notifyListeners();
       return false;
     }
@@ -100,8 +101,7 @@ class ChannelProvider extends ChangeNotifier {
         notifyListeners();
         return true;
       } catch (creationError) {
-        // Falló al crearlo, probablemente ya existe pero la contraseña era incorrecta, o hubo otro error.
-        _error = 'Contraseña incorrecta o nombre no disponible';
+        _error = _parseError(creationError);
         _isLoading = false;
         notifyListeners();
         return false;
@@ -124,7 +124,7 @@ class ChannelProvider extends ChangeNotifier {
       await _api.toggleMuteChannel(channelId, isMuted);
       return true;
     } catch (e) {
-      _error = 'Error al cambiar estado del grupo';
+      _error = _parseError(e);
       return false;
     }
   }
@@ -134,7 +134,7 @@ class ChannelProvider extends ChangeNotifier {
       await _api.penalizeMember(channelId, userId, minutes);
       return true;
     } catch (e) {
-      _error = 'Error al penalizar usuario';
+      _error = _parseError(e);
       return false;
     }
   }
@@ -144,7 +144,7 @@ class ChannelProvider extends ChangeNotifier {
       await _api.changeMemberRole(channelId, userId, role);
       return true;
     } catch (e) {
-      _error = 'Error al cambiar rol del usuario';
+      _error = _parseError(e);
       return false;
     }
   }
@@ -156,7 +156,7 @@ class ChannelProvider extends ChangeNotifier {
       notifyListeners();
       return true;
     } catch (e) {
-      _error = 'Error al eliminar el grupo';
+      _error = _parseError(e);
       return false;
     }
   }
@@ -166,8 +166,31 @@ class ChannelProvider extends ChangeNotifier {
       await _api.updateChannelSettings(channelId, password: password, maxMessageDuration: maxMessageDuration);
       return true;
     } catch (e) {
-      _error = 'Error al actualizar grupo';
+      _error = _parseError(e);
       return false;
     }
+  }
+
+  /// Extrae el mensaje real del servidor desde el response de Dio.
+  String _parseError(dynamic e) {
+    if (e is DioException) {
+      final data = e.response?.data;
+      if (data is Map && data['error'] != null) {
+        return data['error'].toString();
+      }
+      switch (e.response?.statusCode) {
+        case 400: return 'Datos inválidos.';
+        case 401: return 'Sesión expirada, vuelve a iniciar sesión.';
+        case 500: return 'Error interno del servidor.';
+      }
+      if (e.type == DioExceptionType.connectionTimeout ||
+          e.type == DioExceptionType.receiveTimeout) {
+        return 'Sin conexión con el servidor.';
+      }
+      if (e.type == DioExceptionType.connectionError) {
+        return 'No se pudo conectar con el servidor.';
+      }
+    }
+    return e.toString();
   }
 }
