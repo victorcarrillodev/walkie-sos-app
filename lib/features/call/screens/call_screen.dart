@@ -65,6 +65,9 @@ class _CallScreenState extends State<CallScreen> {
   List<MessageModel> _messages = [];
   String? _beepPath;
   StreamSubscription? _newMessageSub;
+
+  String? _currentRecordingPath;
+  bool _isStartingRecording = false;
   
   final Map<String, bool> _playingMessages = {};
 
@@ -97,12 +100,10 @@ class _CallScreenState extends State<CallScreen> {
     IsolateNameServer.removePortNameMapping(bubblePortName);
     IsolateNameServer.registerPortWithName(_bubbleReceivePort.sendPort, bubblePortName);
     _bubbleReceivePort.listen((message) {
-      if (message == 'toggle') {
-        if (_isTalking) {
-          _stopTalking();
-        } else {
-          _startTalking();
-        }
+      if (message == 'start') {
+        _startTalking();
+      } else if (message == 'stop') {
+        _stopTalking();
       }
     });
     _loadEqualizerPref();
@@ -140,6 +141,9 @@ class _CallScreenState extends State<CallScreen> {
         WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
       }
     });
+
+    // Desactivar auto-playback: el CallScreen ya reproduce manualmente
+    context.read<VoiceProvider>().setAutoPlayback(false);
 
     _init();
   }
@@ -277,14 +281,19 @@ class _CallScreenState extends State<CallScreen> {
   }
 
   void _setupListeners() {
-    // onPttStatus y onReceiveAudio ahora los maneja VoiceProvider globalmente.
-    // Solo manejaremos errores locales.
+    // Re-escuchamos ptt-status localmente para actualizar _whoIsTalking
+    // (VoiceProvider también lo escucha para el estado global, sin conflicto)
+    _socket.socket?.on('ptt-status', (data) {
+      if (!mounted) return;
+      final map = data is List ? data[0] : data;
+      setState(() {
+        _whoIsTalking = map['isTalking'] == true ? map['alias'] as String? : null;
+      });
+    });
 
     _socket.onTalkError((data) async {
       if (!mounted) return;
-      // Detenemos activamente WebRTC y la grabación pendiente (así se libera el loop y _isTalking pasa a false)
       await _stopTalking(cancel: true);
-      
       final msg = data is Map ? data['message'] : data[0]['message'];
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text(msg ?? 'No puedes hablar en este momento.'),
@@ -295,18 +304,21 @@ class _CallScreenState extends State<CallScreen> {
 
   Future<void> _startTalking() async {
     final vp = context.read<VoiceProvider>();
-    if (_isTalking || vp.whoIsTalking != null) return; 
+    if (_isTalking || _isStartingRecording || vp.whoIsTalking != null) return; 
 
-    setState(() => _isTalking = true);
+    setState(() {
+      _isTalking = true;
+      _isStartingRecording = true;
+    });
+
     // Notificar al overlay que estamos grabando
-    BubbleService().notifyState(true);
+    BubbleService().notifyState('on');
 
-    // Starto de la p levántola del nivel y se actualizará en un timer
+    // Muestreo de amplitud del micrófono
     _amplitudeTimer = Timer.periodic(const Duration(milliseconds: 80), (_) async {
       try {
+        if (!await _recorder.isRecording()) return;
         final amp = await _recorder.getAmplitude();
-        // amp.current está en dBFS (0 a -160). Normalizamos a 0.0–1.0
-        // -30 dBFS es hablar fuerte, -80 es silencio
         const minDb = -80.0;
         const maxDb = -10.0;
         final clamped = amp.current.clamp(minDb, maxDb);
@@ -315,8 +327,18 @@ class _CallScreenState extends State<CallScreen> {
       } catch (_) {}
     });
 
-    // Pausar escucha de emergencia temporalmente para liberar el micrófono
-    await EmergencyService().stopListening();
+    // Notificamos a los demás inmediatamente
+    _socket.sendPttStart(widget.channel.id);
+
+    // Iniciamos la desconexión de Vosk sin esperar para ganar velocidad
+    EmergencyService().stopListening().catchError((e) {
+      debugPrint("Error pause emergency: $e");
+    });
+    
+    // Iniciamos WebRTC sin await para transmisión en tiempo real casi instantánea
+    _webRTCService.startTalking(widget.channel.id).catchError((e) {
+      debugPrint("Error start WebRTC: $e");
+    });
 
     // Iniciar timer para cortar cuando se exceda el tiempo
     final maxSecs = widget.channel.maxMessageDuration;
@@ -326,21 +348,16 @@ class _CallScreenState extends State<CallScreen> {
       }
     });
     
-    // Pausar reproducción para que el micrófono no capture el altavoz
-    await _player.pause();
-    
-    // Notificamos a los demás inmediatamente
-    _socket.sendPttStart(widget.channel.id);
-    
-    // Reproducimos el beep sin hacer await para ganar 200ms de velocidad
-    _playBeep();
-    
-    // Iniciamos WebRTC para streaming en tiempo real
-    await _webRTCService.startTalking(widget.channel.id);
+    // Pausar TODA reproducción activa (CallScreen + VoiceProvider) antes de grabar
+    _player.pause().catchError((_) {});
+    context.read<VoiceProvider>().stopPlayback();
+    await _playBeep();
 
     try {
       final dir = await getApplicationDocumentsDirectory();
       final path = '${dir.path}/ptt_${DateTime.now().millisecondsSinceEpoch}.m4a';
+      _currentRecordingPath = path;
+
       await _recorder.start(
         const RecordConfig(
           encoder: AudioEncoder.aacLc,
@@ -351,30 +368,44 @@ class _CallScreenState extends State<CallScreen> {
         path: path,
       );
     } catch (e) {
-      setState(() => _isTalking = false);
+      debugPrint("Error al iniciar grabación: $e");
+    } finally {
+      if (mounted) setState(() => _isStartingRecording = false);
     }
   }
 
   Future<void> _stopTalking({bool cancel = false}) async {
     if (!_isTalking) return;
+    
+    // Esperar a que el proceso de inicio termine si el usuario soltó muy rápido
+    int attempts = 0;
+    while (_isStartingRecording && attempts < 10) {
+      await Future.delayed(const Duration(milliseconds: 50));
+      attempts++;
+    }
+
     _maxDurationTimer?.cancel();
     _maxDurationTimer = null;
     _amplitudeTimer?.cancel();
     _amplitudeTimer = null;
     _amplitudeNotifier.value = 0.0;
     setState(() => _isTalking = false);
-    // Notificar al overlay que se detuvo la grabación
-    BubbleService().notifyState(false);
+    BubbleService().notifyState('off');
     
-    await _webRTCService.stopTalking();
+    _webRTCService.stopTalking();
     _socket.sendPttEnd(widget.channel.id);
 
     try {
-      final path = await _recorder.stop();
-      if (path == null) return;
-
-      final file = File(path);
-      if (!await file.exists()) return;
+      final rawPath = await _recorder.stop();
+      if (rawPath == null && _currentRecordingPath == null) return;
+      
+      final String finalPath = _sanitizePath(rawPath ?? _currentRecordingPath!);
+      final file = File(finalPath);
+      
+      if (!await file.exists()) {
+        debugPrint('❌ Archivo de audio no encontrado al detener: $finalPath');
+        return;
+      }
 
       if (cancel) {
         await file.delete();
@@ -390,7 +421,7 @@ class _CallScreenState extends State<CallScreen> {
         channelId: widget.channel.id,
         userId: _myUserId,
         alias: _myAlias,
-        audioPath: path,
+        audioPath: finalPath,
         createdAt: DateTime.now(),
       );
       await _db.saveMessage(msg);
@@ -401,10 +432,17 @@ class _CallScreenState extends State<CallScreen> {
     } catch (e) {
       debugPrint('Error enviando respaldo: $e');
     } finally {
-      // Esperar a que el OS libere el mic antes de reiniciar Vosk
+      _currentRecordingPath = null;
       await Future.delayed(const Duration(milliseconds: 500));
       await EmergencyService().startListening();
     }
+  }
+
+  String _sanitizePath(String path) {
+    if (path.startsWith('file://')) {
+      return path.replaceFirst('file://', '');
+    }
+    return path;
   }
 
   // Historial lo guarda VoiceProvider en global. Nos podemos ahorrar este bloque,
@@ -422,6 +460,11 @@ class _CallScreenState extends State<CallScreen> {
       return;
     }
 
+    // Detenemos cualquier audio que esté reproduciendo el VoiceProvider (reproducción automática)
+    try {
+      context.read<VoiceProvider>().stopPlayback();
+    } catch (_) {}
+
     await _player.stop();
     if (mounted) {
       setState(() {
@@ -433,20 +476,31 @@ class _CallScreenState extends State<CallScreen> {
     }
 
     try {
-      final file = File(msg.audioPath);
+      final cleanPath = _sanitizePath(msg.audioPath);
+      final file = File(cleanPath);
       if (!await file.exists()) {
-        if (mounted) setState(() => _playingMessages[msg.id] = false);
+        debugPrint('❌ El archivo no existe en la ruta: $cleanPath');
+        if (mounted) {
+          setState(() => _playingMessages[msg.id] = false);
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('No se encuentra el archivo de audio.'),
+            backgroundColor: Colors.red,
+          ));
+        }
         return;
       }
 
-      await _player.play(DeviceFileSource(msg.audioPath));
+      await _player.play(DeviceFileSource(cleanPath));
     } catch (e) {
+      debugPrint('❌ Error al reproducir mensaje: $e');
       if (mounted) setState(() => _playingMessages[msg.id] = false);
     }
   }
 
   @override
   void dispose() {
+    // Reactivar auto-playback global al salir del canal
+    context.read<VoiceProvider>().setAutoPlayback(true);
     _newMessageSub?.cancel();
     BubbleService().hideBubble();
     IsolateNameServer.removePortNameMapping(bubblePortName);
@@ -469,7 +523,7 @@ class _CallScreenState extends State<CallScreen> {
           onPressed: () => Navigator.pop(context),
         ),
         actions: [
-          if (_isAdmin)
+          if (_isAdmin && !_isDirectChannel)
             InkWell(
               onTap: () {
                 Navigator.push(
@@ -1045,10 +1099,14 @@ class _MessageBubbleState extends State<MessageBubble> {
   // Analiza la duración del archivo en segundo plano sin saturar la UI
   Future<void> _fetchDuration() async {
     try {
-      final file = File(widget.msg.audioPath);
+      // Limpiar path de posibles prefijos file://
+      String path = widget.msg.audioPath;
+      if (path.startsWith('file://')) path = path.replaceFirst('file://', '');
+      
+      final file = File(path);
       if (await file.exists()) {
         final tempPlayer = AudioPlayer();
-        await tempPlayer.setSourceDeviceFile(widget.msg.audioPath);
+        await tempPlayer.setSource(DeviceFileSource(path));
         final dur = await tempPlayer.getDuration();
         if (mounted && dur != null) {
           setState(() => _duration = dur);

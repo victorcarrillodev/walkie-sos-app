@@ -33,10 +33,16 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   Future<void> _register() async {
     final auth = context.read<AuthProvider>();
+    
+    var cleanAlias = _aliasCtrl.text.trim();
+    if (cleanAlias.startsWith('@')) {
+      cleanAlias = cleanAlias.substring(1);
+    }
+    
     final ok = await auth.register(
       email: _emailCtrl.text.trim(),
       password: _passwordCtrl.text,
-      alias: _aliasCtrl.text.trim(),
+      alias: cleanAlias,
       firstName: _firstNameCtrl.text.trim(),
       lastName: _lastNameCtrl.text.trim(),
     );

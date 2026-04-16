@@ -18,6 +18,7 @@ dependencies:
   # WebRTC
 
   # Almacenamiento local (guardar token y conversaciones)
+  intl: ^0.19.0
   shared_preferences: ^2.2.2
   sqflite: ^2.3.2
   path: ^1.9.0

@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:audioplayers/audioplayers.dart' hide AVAudioSessionCategory;
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_background/flutter_background.dart';
@@ -9,11 +10,13 @@ import '../services/webrtc_service.dart';
 import '../services/database_service.dart';
 import '../models/message_model.dart';
 import 'dart:async';
+import '../services/bubble_service.dart';
 
 class VoiceProvider extends ChangeNotifier {
   final SocketService _socketService = SocketService();
   final WebRTCService _webrtcService = WebRTCService();
   final DatabaseService _db = DatabaseService();
+  final AudioPlayer _audioPlayer = AudioPlayer();
 
   final StreamController<MessageModel> _newMessageController = StreamController<MessageModel>.broadcast();
   Stream<MessageModel> get newMessageStream => _newMessageController.stream;
@@ -22,9 +25,14 @@ class VoiceProvider extends ChangeNotifier {
   String? _activeChannelId;
   String? _myUserId;
   bool _isInitialized = false;
+  bool _autoPlayEnabled = true;  // false cuando CallScreen ya maneja la reproducción
 
-  String? get whoIsTalking => _whoIsTalking;
+  String? get whoIsTalking    => _whoIsTalking;
   String? get activeChannelId => _activeChannelId;
+
+  /// Activa o desactiva la reproducción automática al recibir audio.
+  /// El CallScreen lo pone en false para evitar audio doble.
+  void setAutoPlayback(bool enabled) => _autoPlayEnabled = enabled;
 
   Future<void> init(String myUserId) async {
     if (_isInitialized) return;
@@ -79,9 +87,11 @@ class VoiceProvider extends ChangeNotifier {
       if (map['isTalking'] == true) {
         _whoIsTalking = map['alias'];
         _activeChannelId = map['channelId'];
+        BubbleService().notifyState('receiving');
       } else {
         _whoIsTalking = null;
         _activeChannelId = null;
+        BubbleService().notifyState('off');
       }
       notifyListeners();
     });
@@ -114,8 +124,24 @@ class VoiceProvider extends ChangeNotifier {
       
       await _db.saveMessage(msg);
       _newMessageController.add(msg);
+      
+      // Reproducción automática solo si nadie en la UI ya maneja el audio
+      if (_autoPlayEnabled) {
+        try {
+          await _audioPlayer.stop();
+          await _audioPlayer.play(DeviceFileSource(path));
+        } catch (e) {
+          debugPrint('❌ Error en reproducción automática: $e');
+        }
+      }
     } catch (e) {
       debugPrint('❌ Error guardando historial en background: $e');
     }
+  }
+
+  Future<void> stopPlayback() async {
+    try {
+      await _audioPlayer.stop();
+    } catch (_) {}
   }
 }

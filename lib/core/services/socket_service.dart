@@ -48,6 +48,11 @@ class SocketService {
     for (final channelId in _joinedChannels) {
       _socket?.emit('join-channel', channelId);
     }
+    
+    // Restaurar listeners globales (Vital para que PresenceProvider y VoiceProvider no mueran tras reconectar)
+    _listeners.forEach((event, callback) {
+      _socket?.on(event, callback);
+    });
   });
 
   _socket!.onConnectError((data) {
@@ -113,72 +118,42 @@ class SocketService {
     _socket?.emit('check-users-status', userIds);
   }
 
+  final Map<String, Function(dynamic)> _listeners = {};
+
+  void _registerListener(String event, Function(dynamic) callback) {
+    _listeners[event] = callback;
+    _socket?.off(event);
+    _socket?.on(event, callback);
+  }
+
   // LISTENERS - limpia antes de agregar para evitar duplicados
-  void onReceiveOffer(Function(dynamic) callback) {
-    _socket?.off('webrtc-offer');
-    _socket?.on('webrtc-offer', callback);
-  }
+  void onReceiveOffer(Function(dynamic) callback) => _registerListener('webrtc-offer', callback);
+  void onReceiveAnswer(Function(dynamic) callback) => _registerListener('webrtc-answer', callback);
+  void onReceiveIceCandidate(Function(dynamic) callback) => _registerListener('webrtc-ice-candidate', callback);
+  void onReceiveAudio(Function(dynamic) callback) => _registerListener('receive-audio', callback);
+  void onPttStatus(Function(dynamic) callback) => _registerListener('ptt-status', callback);
+  void onChannelEvent(Function(dynamic) callback) => _registerListener('channel-event', callback);
+  void onOnlineStatus(Function(dynamic) callback) => _registerListener('online-status', callback);
+  void onUserStatusChanged(Function(dynamic) callback) => _registerListener('user-status-changed', callback);
+  void onUsersStatus(Function(dynamic) callback) => _registerListener('users-status', callback);
+  void onTalkError(Function(dynamic) callback) => _registerListener('talk-error', callback);
 
-  void onReceiveAnswer(Function(dynamic) callback) {
-    _socket?.off('webrtc-answer');
-    _socket?.on('webrtc-answer', callback);
-  }
 
-  void onReceiveIceCandidate(Function(dynamic) callback) {
-    _socket?.off('webrtc-ice-candidate');
-    _socket?.on('webrtc-ice-candidate', callback);
-  }
-
-  void onReceiveAudio(Function(dynamic) callback) {
-    _socket?.off('receive-audio');
-    _socket?.on('receive-audio', callback);
-  }
-
-  void onPttStatus(Function(dynamic) callback) {
-    _socket?.off('ptt-status');
-    _socket?.on('ptt-status', callback);
-  }
-
-  void onChannelEvent(Function(dynamic) callback) {
-    _socket?.off('channel-event');
-    _socket?.on('channel-event', callback);
-  }
-
-  void onOnlineStatus(Function(dynamic) callback) {
-    _socket?.off('online-status');
-    _socket?.on('online-status', callback);
-  }
-
-  void onUserStatusChanged(Function(dynamic) callback) {
-    _socket?.off('user-status-changed');
-    _socket?.on('user-status-changed', callback);
-  }
-
-  void onUsersStatus(Function(dynamic) callback) {
-    _socket?.off('users-status');
-    _socket?.on('users-status', callback);
-  }
-
-  void onTalkError(Function(dynamic) callback) {
-    _socket?.off('talk-error');
-    _socket?.on('talk-error', callback);
-  }
 
   void cancelAlert(String alertId, String? channelId) {
     _socket?.emit('cancel-alert', {'alertId': alertId, 'channelId': channelId});
   }
 
   void removeChannelListeners() {
-    _socket?.off('webrtc-offer');
-    _socket?.off('webrtc-answer');
-    _socket?.off('webrtc-ice-candidate');
-    _socket?.off('ptt-status');
-    _socket?.off('receive-audio');
-    _socket?.off('channel-event');
-    _socket?.off('online-status');
-    _socket?.off('user-status-changed');
-    _socket?.off('users-status');
-    _socket?.off('talk-error');
+    const channelEvents = [
+      'webrtc-offer', 'webrtc-answer', 'webrtc-ice-candidate',
+      'ptt-status', 'receive-audio', 'channel-event',
+      'online-status', 'user-status-changed', 'users-status', 'talk-error',
+    ];
+    for (final event in channelEvents) {
+      _socket?.off(event);
+      _listeners.remove(event);
+    }
   }
 
   // Solo desconectar al hacer logout, NO al salir de un canal

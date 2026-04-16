@@ -66,9 +66,9 @@ class BubbleService {
   }
 
   /// Notifica al overlay el nuevo estado de grabación para que cambie su color.
-  Future<void> notifyState(bool isActive) async {
+  Future<void> notifyState(String state) async {
     if (await FlutterOverlayWindow.isActive()) {
-      await FlutterOverlayWindow.shareData(isActive ? 'STATE:on' : 'STATE:off');
+      await FlutterOverlayWindow.shareData('STATE:$state');
     }
   }
 
@@ -91,7 +91,7 @@ class OverlayWidget extends StatefulWidget {
 
 class _OverlayWidgetState extends State<OverlayWidget> {
   String  _chatName  = '';
-  bool    _isActive  = false;   // refleja el estado real que viene de CallScreen
+  String  _bubbleState = 'off';   // 'on' (grabando), 'receiving' (recibiendo audio), 'off' (idle)
   double  _bubbleSize = _kMediumDp.toDouble();
   Timer?  _positionTimer;
 
@@ -107,9 +107,8 @@ class _OverlayWidgetState extends State<OverlayWidget> {
       if (event.startsWith('SIZE:')) {
         _applySize(event.substring(5).trim());
       } else if (event.startsWith('STATE:')) {
-        // CallScreen informa si está grabando o no
-        final isOn = event.substring(6).trim() == 'on';
-        if (mounted) setState(() => _isActive = isOn);
+        final st = event.substring(6).trim();
+        if (mounted) setState(() => _bubbleState = st);
       } else {
         // Es el nombre del canal
         if (mounted) setState(() => _chatName = event);
@@ -124,8 +123,8 @@ class _OverlayWidgetState extends State<OverlayWidget> {
         final screenH = view.physicalSize.height / view.devicePixelRatio;
         if (pos.y > screenH * 0.90) {
           // Si estaba grabando, enviamos toggle para que CallScreen detenga
-          if (_isActive) {
-            IsolateNameServer.lookupPortByName(bubblePortName)?.send('toggle');
+          if (_bubbleState == 'on') {
+            IsolateNameServer.lookupPortByName(bubblePortName)?.send('stop');
           }
           FlutterOverlayWindow.closeOverlay();
         }
@@ -159,7 +158,10 @@ class _OverlayWidgetState extends State<OverlayWidget> {
 
   @override
   Widget build(BuildContext context) {
-    final Color glowColor = _isActive ? Colors.greenAccent : Colors.blueAccent;
+    Color glowColor = Colors.blueAccent;
+    if (_bubbleState == 'on') glowColor = Colors.greenAccent;
+    if (_bubbleState == 'receiving') glowColor = Colors.redAccent;
+
 
     return Material(
       color: Colors.transparent,
@@ -174,10 +176,9 @@ class _OverlayWidgetState extends State<OverlayWidget> {
 
             // ── Botón circular ──────────────────────────────────────────
             GestureDetector(
-              // onTap opera en la capa de gestos de Flutter.
-              // enableDrag nativo de Android opera a nivel de MotionEvent.
-              // Ambos coexisten sin conflicto: tap activa toggle, drag mueve la ventana.
-              onTap: () => IsolateNameServer.lookupPortByName(bubblePortName)?.send('toggle'),
+              onTapDown: (_) => IsolateNameServer.lookupPortByName(bubblePortName)?.send('start'),
+              onTapUp: (_) => IsolateNameServer.lookupPortByName(bubblePortName)?.send('stop'),
+              onTapCancel: () => IsolateNameServer.lookupPortByName(bubblePortName)?.send('stop'),
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 200),
                 width:   _bubbleSize,

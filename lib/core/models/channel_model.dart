@@ -21,7 +21,7 @@ class ChannelModel {
       name: json['name'],
       description: json['description'],
       maxMessageDuration: json['maxMessageDuration'] ?? 60,
-      isGroup: json['isGroup'] ?? true,
+      isGroup: json['isGroup'] ?? !json['name'].toString().startsWith('direct_'),
       memberCount: json['_count']?['members'],
     );
   }

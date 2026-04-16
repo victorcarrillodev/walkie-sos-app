@@ -65,11 +65,15 @@ class _ContactsScreenState extends State<ContactsScreen> {
             style: ElevatedButton.styleFrom(
                 backgroundColor: Theme.of(context).colorScheme.primary),
             onPressed: () async {
-              if (aliasCtrl.text.trim().isEmpty) return;
+              var cleanAlias = aliasCtrl.text.trim();
+              if (cleanAlias.startsWith('@')) {
+                cleanAlias = cleanAlias.substring(1);
+              }
+              if (cleanAlias.isEmpty) return;
               Navigator.pop(context);
               final ok = await context
                   .read<ContactProvider>()
-                  .addContact(aliasCtrl.text.trim());
+                  .addContact(cleanAlias);
               if (mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(SnackBar(
                   content: Text(ok

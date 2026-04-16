@@ -16,12 +16,10 @@ class PresenceProvider extends ChangeNotifier {
   /// Usa el socket raw para no sobreescribir otros listeners.
   void _ensureListening() {
     if (_listening) return;
-    final rawSocket = _socket.socket;
-    if (rawSocket == null) return;
     _listening = true;
 
     // Respuesta a consulta masiva (check-users-status → users-status)
-    rawSocket.on('users-status', (data) {
+    _socket.onUsersStatus((data) {
       if (data is List) {
         for (final item in data) {
           final userId = item['userId']?.toString();
@@ -33,7 +31,7 @@ class PresenceProvider extends ChangeNotifier {
     });
 
     // Respuesta a consulta individual (check-online-status → online-status)
-    rawSocket.on('online-status', (data) {
+    _socket.onOnlineStatus((data) {
       final userId = data['userId']?.toString();
       final online = data['isOnline'] == true;
       if (userId != null) {
@@ -43,7 +41,7 @@ class PresenceProvider extends ChangeNotifier {
     });
 
     // Cambios en tiempo real (broadcast cuando alguien conecta/desconecta)
-    rawSocket.on('user-status-changed', (data) {
+    _socket.onUserStatusChanged((data) {
       final userId = data['userId']?.toString();
       final online = data['isOnline'] == true;
       if (userId != null) {
